@@ -57,16 +57,24 @@ Each `Result` includes the provider identifier, the resolved principal, and opti
 
 The proxy includes one built-in access provider:
 
-- `config-api-key`: Validates API keys declared under top-level `api-keys`.
+- `config-api-key`: Validates client API key entries declared under `access.api-keys`.
   - Credential sources: `Authorization: Bearer`, `X-Goog-Api-Key`, `X-Api-Key`, `?key=`, `?auth_token=`
   - Metadata: `Result.Metadata["source"]` is set to the matched source label.
+  - Each entry has a required `key`, an optional `name`, and an optional monthly
+    USD spending cap `quota`. Omitting `quota` leaves the key unlimited; when the
+    month's billed spend reaches the cap the provider returns HTTP 429 with code
+    `insufficient_quota`.
 
 In the CLI server and `sdk/cliproxy`, this provider is registered automatically based on the loaded configuration.
 
 ```yaml
-api-keys:
-  - sk-test-123
-  - sk-prod-456
+access:
+  api-keys:
+    - key: sk-test-123
+      name: test
+    - key: sk-prod-456
+      name: production
+      quota: 100.00
 ```
 
 ## Loading Providers from External Go Modules

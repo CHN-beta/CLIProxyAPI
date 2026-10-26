@@ -112,10 +112,10 @@ func TestV8PresencePrecedenceAndCleanup(t *testing.T) {
 		keys      int
 		unchanged bool
 	}{
-		{"legacy", "request-retry: 4\ndisable-cooling: true\napi-keys: [old]\n", 4, true, 1, true},
-		{"mixed explicit zero", "request-retry: 4\ndisable-cooling: true\napi-keys: [old]\nrouting:\n  retry: {request-retry: 0}\n  cooldown: {disable-cooling: false}\naccess: {api-keys: []}\n", 0, false, 0, false},
-		{"version does not force migration", "config-version: 8\nrequest-retry: 4\ndisable-cooling: true\napi-keys: [old]\n", 4, true, 1, true},
-		{"partial new block", "request-retry: 4\ndisable-cooling: true\napi-keys: [old]\nrouting: {retry: {max-retry-credentials: 2}}\n", 4, true, 1, true},
+		{"legacy", "request-retry: 4\ndisable-cooling: true\napi-keys: [{key: old}]\n", 4, true, 1, true},
+		{"mixed explicit zero", "request-retry: 4\ndisable-cooling: true\napi-keys: [{key: old}]\nrouting:\n  retry: {request-retry: 0}\n  cooldown: {disable-cooling: false}\naccess: {api-keys: []}\n", 0, false, 0, false},
+		{"version does not force migration", "config-version: 8\nrequest-retry: 4\ndisable-cooling: true\napi-keys: [{key: old}]\n", 4, true, 1, true},
+		{"partial new block", "request-retry: 4\ndisable-cooling: true\napi-keys: [{key: old}]\nrouting: {retry: {max-retry-credentials: 2}}\n", 4, true, 1, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
@@ -213,7 +213,7 @@ func TestV8KeyInheritance(t *testing.T) {
 func TestV8MigrationPreservesLegacySemantics(t *testing.T) {
 	raw := []byte(`host: 127.0.0.1
 port: 8317
-api-keys: [client]
+api-keys: [{key: client}]
 request-retry: 0
 ws-auth: false
 quota-exceeded: {switch-project: true, switch-preview-model: true, antigravity-credits: true}
@@ -709,7 +709,7 @@ func TestV8RejectsInvalidGroups(t *testing.T) {
 
 func TestV8ValidationRejectsLegacyWriteLayout(t *testing.T) {
 	for _, raw := range []string{
-		"debug: true", "server: {port: 8317}\nport: 8318", "api-keys: [client]",
+		"debug: true", "server: {port: 8317}\nport: 8318", "api-keys: [{key: client}]",
 		"codex-api-key: []", "codex: {}", "quota-exceeded: {antigravity-credits: true}",
 		"home: {enabled: true}", "enable-gemini-cli-endpoint: true", "unknown-root: true",
 		"<<: {debug: true}",
@@ -749,7 +749,7 @@ func TestV8LegacyClientKeysDoNotOverwriteUpstreamGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.APIKeys = []string{"client-key"}
+	cfg.APIKeys = []APIKeyEntry{{Key: "client-key"}}
 	if err = SaveConfigPreserveComments(path, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -757,7 +757,7 @@ func TestV8LegacyClientKeysDoNotOverwriteUpstreamGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.APIKeys) != 1 || cfg.APIKeys[0] != "client-key" || len(cfg.CodexKey) != 1 {
+	if len(cfg.APIKeys) != 1 || cfg.APIKeys[0].Key != "client-key" || len(cfg.CodexKey) != 1 {
 		t.Fatal("client/upstream key collision lost credentials")
 	}
 }
@@ -931,5 +931,46 @@ func TestV8SecretHashResolvesReferences(t *testing.T) {
 				t.Fatalf("second load changed the persisted hash or settings: %v", err)
 			}
 		})
+	}
+}
+
+func TestV8UsagePostgresDSNMappingAndRoundTrip(t *testing.T) {
+	cfg, err := ParseConfigBytes([]byte("config-version: 8\nobservability:\n  usage:\n    postgres-dsn: postgres://user:pass@example/db\n"))
+	if err != nil {
+		t.Fatalf("parse v8 dsn: %v", err)
+	}
+	if cfg.UsagePostgresDSN != "postgres://user:pass@example/db" {
+		t.Fatalf("UsagePostgresDSN = %q", cfg.UsagePostgresDSN)
+	}
+
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	raw := "config-version: 8\naccess:\n  api-keys:\n    - key: client\n      quota: 12.5\n"
+	if err = os.WriteFile(path, []byte(raw), 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded.UsagePostgresDSN = "postgres://user:pass@example/db"
+	if err = SaveConfigPreserveComments(path, loaded); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(saved), "postgres-dsn: postgres://user:pass@example/db") {
+		t.Fatalf("postgres-dsn missing from v8 save: %s", saved)
+	}
+	reloaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.UsagePostgresDSN != loaded.UsagePostgresDSN {
+		t.Fatalf("UsagePostgresDSN round trip = %q", reloaded.UsagePostgresDSN)
+	}
+	if len(reloaded.APIKeys) != 1 || reloaded.APIKeys[0].Key != "client" || reloaded.APIKeys[0].Quota == nil || *reloaded.APIKeys[0].Quota != 12.5 {
+		t.Fatalf("client key round trip = %+v", reloaded.APIKeys)
 	}
 }

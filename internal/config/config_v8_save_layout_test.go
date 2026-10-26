@@ -15,7 +15,7 @@ func TestIsV8ConfigLayout(t *testing.T) {
 		v8        bool
 	}{
 		{"legacy", "request-retry: 3\ncodex: {response-steering: true}\n", false},
-		{"legacy common roots", "routing: {strategy: fill-first}\nplugins: {configs: {example: {enabled: true}}}\nquota-exceeded: {switch-project: true}\nclient: {codex: {enable-apply-patch: true}}\napi-keys: [client-key]\n", false},
+		{"legacy common roots", "routing: {strategy: fill-first}\nplugins: {configs: {example: {enabled: true}}}\nquota-exceeded: {switch-project: true}\nclient: {codex: {enable-apply-patch: true}}\napi-keys: [{key: client-key}]\n", false},
 		{"legacy optimize alias", "codex: {optimize-multi-agent-v2: true}\n", false},
 		{"declared v8", "config-version: 8\nrequest-retry: 3\n", true},
 		{"historical v8", "oauth: {providers: {codex: {response-steering: true}}}\n", true},

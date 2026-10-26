@@ -222,6 +222,14 @@ func accessAuthMiddleware(manager *sdkaccess.Manager, realtimeError bool) gin.Ha
 		if statusCode >= http.StatusInternalServerError {
 			log.Errorf("authentication middleware error: %v", err)
 		}
+		if err.Code == sdkaccess.AuthErrorCodeInsufficientQuota || statusCode == http.StatusTooManyRequests {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": gin.H{
+				"message": err.Message,
+				"type":    "rate_limit_error",
+				"code":    "insufficient_quota",
+			}})
+			return
+		}
 		if realtimeError {
 			errorType := "authentication_error"
 			code := "invalid_api_key"

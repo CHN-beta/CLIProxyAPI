@@ -13,8 +13,13 @@ import (
 	"strings"
 	"time"
 
+	sdkaccess "github.com/router-for-me/CLIProxyAPI/v8/sdk/access"
 	"gopkg.in/yaml.v3"
 )
+
+// APIKeyEntry describes a client API key accepted by the proxy. Quota is a
+// monthly spending cap in US dollars; nil means unlimited.
+type APIKeyEntry = sdkaccess.APIKeyEntry
 
 // SDKConfig represents the application's configuration, loaded from a YAML file.
 type SDKConfig struct {
@@ -90,8 +95,9 @@ type SDKConfig struct {
 	// ClaudeCode configures Claude Code compatibility behavior.
 	ClaudeCode ClaudeCodeConfig `yaml:"claude-code" json:"claude-code"`
 
-	// APIKeys is a list of keys for authenticating clients to this proxy server.
-	APIKeys []string `yaml:"api-keys" json:"api-keys"`
+	// APIKeys lists client API keys accepted by the proxy together with their
+	// optional monthly spending quota.
+	APIKeys []APIKeyEntry `yaml:"api-keys" json:"api-keys"`
 
 	// PassthroughHeaders controls whether upstream response headers are forwarded to downstream clients.
 	// Default is false (disabled).

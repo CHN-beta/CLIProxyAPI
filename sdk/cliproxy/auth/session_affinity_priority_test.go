@@ -92,8 +92,8 @@ func TestManagerSessionAffinityPreservesBindingAcrossHigherPriorityRecovery(t *t
 			}
 
 			expireSessionAffinityPriorityModelCooldown(t, manager, highID, model)
-			if got := pick(opts); got.ID != lowID {
-				t.Fatalf("binding after higher-priority recovery = %q, want sticky %q", got.ID, lowID)
+			if got := pick(opts); got.ID != highID {
+				t.Fatalf("binding after higher-priority recovery = %q, want preempted %q", got.ID, highID)
 			}
 
 			newSessionOpts := cliproxyexecutor.Options{Metadata: map[string]any{
@@ -315,8 +315,8 @@ func TestManagerSessionAffinityRebindOnQuotaPreservesBindingAcrossTransientFailo
 			})
 
 			expireSessionAffinityPriorityModelCooldown(t, manager, highID, model)
-			if got := pick(opts); got.ID != lowID {
-				t.Fatalf("binding after quota recovery = %q, want sticky %q", got.ID, lowID)
+			if got := pick(opts); got.ID != highID {
+				t.Fatalf("binding after quota recovery = %q, want preempted %q", got.ID, highID)
 			}
 
 			// Auth failure (403) on a new session must also rebind and stay bound.
@@ -345,8 +345,8 @@ func TestManagerSessionAffinityRebindOnQuotaPreservesBindingAcrossTransientFailo
 				Options:  authFailOpts,
 			})
 			expireSessionAffinityPriorityModelCooldown(t, manager, highID, model)
-			if got := pick(authFailOpts); got.ID != lowID {
-				t.Fatalf("binding after auth error recovery = %q, want sticky %q", got.ID, lowID)
+			if got := pick(authFailOpts); got.ID != highID {
+				t.Fatalf("binding after auth error recovery = %q, want preempted %q", got.ID, highID)
 			}
 		})
 	}
@@ -452,8 +452,8 @@ func TestManagerSessionAffinityRebindOnQuotaLCPPreservesBindingAcrossTransientFa
 	expireSessionAffinityPriorityModelCooldown(t, manager, highID, model)
 	turn5 := makeTurnOpts(`{"messages":[{"role":"user","content":"turn 1 hello"},{"role":"assistant","content":"hi"},{"role":"user","content":"turn 2 question"},{"role":"assistant","content":"turn 2 answer"},{"role":"user","content":"turn 3 follow-up"},{"role":"assistant","content":"turn 3 answer"},{"role":"user","content":"turn 4 quota"},{"role":"assistant","content":"turn 4 answer"},{"role":"user","content":"turn 5 after quota recovery"}]}`)
 	got5, _, errPick := manager.pickNext(ctx, provider, model, turn5, nil)
-	if errPick != nil || got5 == nil || got5.ID != lowID {
-		t.Fatalf("turn 5 pick after quota recovery = %v (err=%v), want sticky %q", got5, errPick, lowID)
+	if errPick != nil || got5 == nil || got5.ID != highID {
+		t.Fatalf("turn 5 pick after quota recovery = %v (err=%v), want preempted %q", got5, errPick, highID)
 	}
 }
 
@@ -762,8 +762,8 @@ func TestManagerExecuteAndStreamRebindOnQuotaEndToEnd(t *testing.T) {
 				expireSessionAffinityPriorityModelCooldown(t, manager, highID, model)
 			}
 			resp, errExec = manager.Execute(ctx, []string{provider}, req, opts)
-			if errExec != nil || string(resp.Payload) != midID {
-				t.Fatalf("Execute after quota recovery = %q (err=%v), want sticky %q", string(resp.Payload), errExec, midID)
+			if errExec != nil || string(resp.Payload) != highID {
+				t.Fatalf("Execute after quota recovery = %q (err=%v), want preempted %q", string(resp.Payload), errExec, highID)
 			}
 		})
 	}

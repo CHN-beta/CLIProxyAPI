@@ -57,16 +57,23 @@ default:
 
 代理内置一个访问提供者：
 
-- `config-api-key`：校验 `config.yaml` 顶层的 `api-keys`。
+- `config-api-key`：校验 `access.api-keys` 中声明的客户端 API Key 条目。
   - 凭证来源：`Authorization: Bearer`、`X-Goog-Api-Key`、`X-Api-Key`、`?key=`、`?auth_token=`
   - 元数据：`Result.Metadata["source"]` 会写入匹配到的来源标识
+  - 每个条目包含必填的 `key`、可选的 `name`，以及可选的月度美元额度 `quota`。
+    省略 `quota` 表示不限额；当月已计费金额达到额度后，该 provider 返回 HTTP 429，
+    错误码为 `insufficient_quota`。
 
 在 CLI 服务端与 `sdk/cliproxy` 中，该 provider 会根据加载到的配置自动注册。
 
 ```yaml
-api-keys:
-  - sk-test-123
-  - sk-prod-456
+access:
+  api-keys:
+    - key: sk-test-123
+      name: test
+    - key: sk-prod-456
+      name: production
+      quota: 100.00
 ```
 
 ## 引入外部 Go 模块提供者

@@ -6,6 +6,17 @@ type AccessConfig struct {
 	Providers []AccessProvider `yaml:"providers,omitempty" json:"providers,omitempty"`
 }
 
+// APIKeyEntry describes a client API key accepted by the proxy.
+//
+// Quota is a monthly spending cap in US dollars. A nil Quota means the key is
+// unlimited; a non-nil Quota (including zero or negative values) is enforced
+// against the current month's billed usage.
+type APIKeyEntry struct {
+	Key   string   `yaml:"key" json:"key"`
+	Name  string   `yaml:"name,omitempty" json:"name,omitempty"`
+	Quota *float64 `yaml:"quota,omitempty" json:"quota,omitempty"`
+}
+
 // AccessProvider describes a request authentication provider entry.
 type AccessProvider struct {
 	// Name is the instance identifier for the provider.

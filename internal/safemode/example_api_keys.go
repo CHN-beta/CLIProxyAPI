@@ -3,6 +3,8 @@ package safemode
 import (
 	"html"
 	"strings"
+
+	sdkaccess "github.com/router-for-me/CLIProxyAPI/v8/sdk/access"
 )
 
 var exampleAPIKeys = map[string]struct{}{
@@ -12,15 +14,15 @@ var exampleAPIKeys = map[string]struct{}{
 }
 
 // ExampleAPIKeys returns configured top-level API keys that still use template values.
-func ExampleAPIKeys(keys []string) []string {
-	if len(keys) == 0 {
+func ExampleAPIKeys(entries []sdkaccess.APIKeyEntry) []string {
+	if len(entries) == 0 {
 		return nil
 	}
 
-	matches := make([]string, 0, len(keys))
+	matches := make([]string, 0, len(entries))
 	seen := make(map[string]struct{}, len(exampleAPIKeys))
-	for _, key := range keys {
-		trimmed := strings.TrimSpace(key)
+	for _, entry := range entries {
+		trimmed := strings.TrimSpace(entry.Key)
 		if _, ok := exampleAPIKeys[trimmed]; !ok {
 			continue
 		}
@@ -37,8 +39,8 @@ func ExampleAPIKeys(keys []string) []string {
 }
 
 // HasExampleAPIKeys reports whether any configured top-level API key is a template value.
-func HasExampleAPIKeys(keys []string) bool {
-	return len(ExampleAPIKeys(keys)) > 0
+func HasExampleAPIKeys(entries []sdkaccess.APIKeyEntry) bool {
+	return len(ExampleAPIKeys(entries)) > 0
 }
 
 // ExampleAPIKeyWarningPageHTML returns the setup warning page HTML.

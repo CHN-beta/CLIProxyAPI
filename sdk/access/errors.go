@@ -16,6 +16,7 @@ const (
 	AuthErrorCodeDenied            AuthErrorCode = "denied"
 	AuthErrorCodeRequestTooLarge   AuthErrorCode = "request_too_large"
 	AuthErrorCodeInternal          AuthErrorCode = "internal_error"
+	AuthErrorCodeInsufficientQuota AuthErrorCode = "insufficient_quota"
 )
 
 // AuthError carries authentication failure details and HTTP status.
@@ -96,6 +97,16 @@ func NewDeniedError(message string, statusCode int) *AuthError {
 // NewRequestEntityTooLargeError builds a 413 error when the request body exceeds the configured limit.
 func NewRequestEntityTooLargeError(cause error) *AuthError {
 	return newAuthError(AuthErrorCodeRequestTooLarge, "http: request body too large", http.StatusRequestEntityTooLarge, cause)
+}
+
+// NewInsufficientQuotaError builds a 429 error for a client API key whose
+// monthly spending cap has been reached.
+func NewInsufficientQuotaError(message string) *AuthError {
+	normalizedMessage := strings.TrimSpace(message)
+	if normalizedMessage == "" {
+		normalizedMessage = "API key monthly quota exceeded"
+	}
+	return newAuthError(AuthErrorCodeInsufficientQuota, normalizedMessage, http.StatusTooManyRequests, nil)
 }
 
 func NewInternalAuthError(message string, cause error) *AuthError {

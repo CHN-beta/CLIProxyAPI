@@ -79,6 +79,11 @@ type Config struct {
 	// Default: 60. Max: 3600.
 	RedisUsageQueueRetentionSeconds int `yaml:"redis-usage-queue-retention-seconds" json:"redis-usage-queue-retention-seconds"`
 
+	// UsagePostgresDSN is the PostgreSQL connection string used to persist
+	// per-request API key usage and monthly billing totals. Empty disables
+	// persistence while keeping in-memory accounting active.
+	UsagePostgresDSN string `yaml:"usage-postgres-dsn,omitempty" json:"usage-postgres-dsn,omitempty"`
+
 	// DisableCooling disables auth/model cooldown scheduling when true unless a credential or provider overrides it.
 	DisableCooling bool `yaml:"disable-cooling" json:"disable-cooling"`
 

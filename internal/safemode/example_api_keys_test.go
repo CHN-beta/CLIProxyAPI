@@ -3,17 +3,19 @@ package safemode
 import (
 	"strings"
 	"testing"
+
+	sdkaccess "github.com/router-for-me/CLIProxyAPI/v8/sdk/access"
 )
 
 func TestExampleAPIKeysDetectsOnlyTemplateValues(t *testing.T) {
-	keys := []string{
-		" real-key ",
-		" your-api-key-1 ",
-		"your-api-key",
-		"change-me",
-		"your-api-key-2",
-		"your-api-key-2",
-		"your-api-key-3",
+	keys := []sdkaccess.APIKeyEntry{
+		{Key: " real-key "},
+		{Key: " your-api-key-1 "},
+		{Key: "your-api-key"},
+		{Key: "change-me"},
+		{Key: "your-api-key-2"},
+		{Key: "your-api-key-2"},
+		{Key: "your-api-key-3"},
 	}
 
 	got := ExampleAPIKeys(keys)
@@ -29,7 +31,7 @@ func TestExampleAPIKeysDetectsOnlyTemplateValues(t *testing.T) {
 }
 
 func TestExampleAPIKeysIgnoresSimilarValues(t *testing.T) {
-	keys := []string{"your-api-key", "change-me", "changeme", "your-api-key-4", "my-your-api-key-1"}
+	keys := []sdkaccess.APIKeyEntry{{Key: "your-api-key"}, {Key: "change-me"}, {Key: "changeme"}, {Key: "your-api-key-4"}, {Key: "my-your-api-key-1"}}
 	if got := ExampleAPIKeys(keys); len(got) != 0 {
 		t.Fatalf("ExampleAPIKeys() = %#v, want empty", got)
 	}

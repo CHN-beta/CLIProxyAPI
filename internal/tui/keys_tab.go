@@ -15,7 +15,7 @@ import (
 type keysTabModel struct {
 	client       *Client
 	viewport     viewport.Model
-	keys         []string
+	keys         []APIKeyEntry
 	gemini       []map[string]any
 	interactions []map[string]any
 	claude       []map[string]any
@@ -39,7 +39,7 @@ type keysTabModel struct {
 }
 
 type keysDataMsg struct {
-	apiKeys      []string
+	apiKeys      []APIKeyEntry
 	gemini       []map[string]any
 	interactions []map[string]any
 	claude       []map[string]any
@@ -151,7 +151,9 @@ func (m keysTabModel) Update(msg tea.Msg) (keysTabModel, tea.Cmd) {
 					}
 				}
 				return m, func() tea.Msg {
-					err := m.client.EditAPIKey(editIdx, value)
+					entry := m.keys[editIdx]
+					entry.Key = value
+					err := m.client.EditAPIKey(editIdx, entry)
 					if err != nil {
 						return keyActionMsg{err: err}
 					}
@@ -221,7 +223,7 @@ func (m keysTabModel) Update(msg tea.Msg) (keysTabModel, tea.Cmd) {
 				m.editing = true
 				m.adding = false
 				m.editIdx = m.cursor
-				m.editInput.SetValue(m.keys[m.cursor])
+				m.editInput.SetValue(m.keys[m.cursor].Key)
 				m.editInput.Prompt = T("edit_key_prompt")
 				m.editInput.Focus()
 				m.viewport.SetContent(m.renderContent())
@@ -238,7 +240,7 @@ func (m keysTabModel) Update(msg tea.Msg) (keysTabModel, tea.Cmd) {
 		case "c":
 			// Copy selected key to clipboard
 			if m.cursor < len(m.keys) {
-				key := m.keys[m.cursor]
+				key := m.keys[m.cursor].Key
 				if err := clipboard.WriteAll(key); err != nil {
 					m.status = errorStyle.Render(T("copy_failed") + ": " + err.Error())
 				} else {
@@ -308,7 +310,7 @@ func (m keysTabModel) renderContent() string {
 		sb.WriteString("\n")
 	}
 
-	for i, key := range m.keys {
+	for i, entry := range m.keys {
 		cursor := "  "
 		rowStyle := lipgloss.NewStyle()
 		if i == m.cursor {
@@ -316,13 +318,21 @@ func (m keysTabModel) renderContent() string {
 			rowStyle = lipgloss.NewStyle().Bold(true)
 		}
 
-		row := fmt.Sprintf("%s%d. %s", cursor, i+1, maskKey(key))
+		row := fmt.Sprintf("%s%d. %s", cursor, i+1, maskKey(entry.Key))
+		if entry.Name != "" {
+			row += "  " + entry.Name
+		}
+		if entry.Quota != nil {
+			row += fmt.Sprintf("  $%.4f / $%.2f", entry.Used, *entry.Quota)
+		} else if entry.Used > 0 {
+			row += fmt.Sprintf("  $%.4f", entry.Used)
+		}
 		sb.WriteString(rowStyle.Render(row))
 		sb.WriteString("\n")
 
 		// Delete confirmation
 		if m.confirm == i {
-			sb.WriteString(warningStyle.Render(fmt.Sprintf("    "+T("confirm_delete_key"), maskKey(key))))
+			sb.WriteString(warningStyle.Render(fmt.Sprintf("    "+T("confirm_delete_key"), maskKey(entry.Key))))
 			sb.WriteString("\n")
 		}
 

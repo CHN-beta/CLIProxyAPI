@@ -55,8 +55,24 @@ func (h *Handler) ConfigV8(c *gin.Context) {
 		parts = strings.Split(path, "/")
 	}
 	yamlRequest := strings.HasSuffix(c.FullPath(), "/config.yaml")
+	apiKeysPath := len(parts) == 2 && parts[0] == "access" && parts[1] == "api-keys"
 	if c.Request.Method == http.MethodGet {
 		config.ProjectV8ConfigAliases(root, strings.Join(parts, "."))
+		if apiKeysPath && !yamlRequest {
+			entries, errDecode := decodeV8APIKeyEntries(root, parts)
+			if errDecode != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "decode_failed", "message": errDecode.Error()})
+				return
+			}
+			c.Header("Cache-Control", "no-store")
+			c.Header("ETag", configV8ETag(diskHash))
+			views := h.apiKeyViews(entries)
+			if views == nil {
+				views = []APIKeyEntryView{}
+			}
+			c.JSON(http.StatusOK, views)
+			return
+		}
 		if !yamlRequest {
 			if servers := configV8Node(root, v8ICEServersPath); servers != nil && servers.Kind == yaml.SequenceNode {
 				for _, server := range servers.Content {
@@ -87,7 +103,11 @@ func (h *Handler) ConfigV8(c *gin.Context) {
 	}
 	before := cloneConfigV8Node(root)
 	config.ProjectV8ConfigAliases(root, strings.Join(parts, "."))
-	if c.Request.Method == http.MethodDelete {
+	if apiKeysPath {
+		if !h.updateV8APIKeys(c, root, parts) {
+			return
+		}
+	} else if c.Request.Method == http.MethodDelete {
 		if len(parts) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot_delete_config"})
 			return

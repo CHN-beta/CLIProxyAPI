@@ -36,13 +36,20 @@ the corresponding group value. Legacy field names are rejected by v8 writes.
 
 | Example path | Value or purpose |
 | --- | --- |
-| `/config/access/api-keys` | Client authentication keys, for example `["client-key"]`. |
+| `/config/access/api-keys` | Client authentication key entries, for example `[{"key":"client-key","name":"team-a","quota":25}]`. GET also returns the read-only `used`, `current-month`, and `key-hash` fields. |
 | `/config/api-keys` | All upstream provider groups. |
 | `/config/api-keys/codex` | Codex upstream groups. |
 | `/config/client/codex/optimize-multi-agent-v2` | Boolean, default `false`; applies to Codex clients across OAuth and API-key routes. |
 | `/config/observability/logs/debug` | A boolean, for example `true`. |
 | `/config/routing/retry/request-retry` | A number, for example `0`. |
 | `/config/plugins/configs/<id>` | A plugin configuration object. |
+
+The client key list also accepts targeted mutations:
+`PUT /config/access/api-keys` replaces the list with an array of entries;
+`PATCH /config/access/api-keys` accepts `{"index":0,"value":{...}}` or
+`{"old":{"key":"old"},"new":{...}}`; and `DELETE` accepts `?index=` or
+`?value=` (matching `key`) or removes the whole field. The read-only `used`,
+`current-month`, and `key-hash` fields returned by GET are ignored on writes.
 
 For example, `PATCH /v8/management/config` with this body disables additional
 request retries while preserving other settings:

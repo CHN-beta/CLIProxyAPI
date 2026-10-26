@@ -19,7 +19,7 @@ import (
 func TestConfigV8MigrationAndLegacyAPI(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	raw := "# Keep this configuration\nport: 8317\nrequest-retry: 3\napi-keys: [client]\nws-auth: true\ntls: {}\npayload: null\ncodex: {live-media-relay: {}}\n"
+	raw := "# Keep this configuration\nport: 8317\nrequest-retry: 3\napi-keys: [{key: client}]\nws-auth: true\ntls: {}\npayload: null\ncodex: {live-media-relay: {}}\n"
 	if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestConfigV8DeleteLastField(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			file := filepath.Join(t.TempDir(), "config.yaml")
-			raw := tc.raw + "port: 8317\napi-keys: [client]\nplugins: {configs: {sample: {enabled: false, options: {}}}}\n"
+			raw := tc.raw + "port: 8317\napi-keys: [{key: client}]\nplugins: {configs: {sample: {enabled: false, options: {}}}}\n"
 			if err := os.WriteFile(file, []byte(raw), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -418,7 +418,7 @@ func TestConfigV8DeleteLastField(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !tc.check(cfg) || cfg.Port != 8317 || len(cfg.APIKeys) != 1 || cfg.APIKeys[0] != "client" {
+			if !tc.check(cfg) || cfg.Port != 8317 || len(cfg.APIKeys) != 1 || cfg.APIKeys[0].Key != "client" {
 				t.Fatal("delete did not restore defaults or changed unrelated settings")
 			}
 			if !reflect.DeepEqual(h.cfg.OAuthOnlyFields, cfg.OAuthOnlyFields) {

@@ -63,7 +63,7 @@ func TestManagementV8RoutesShareAccessControl(t *testing.T) {
 
 func TestManagementV8IndependentContract(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	raw := "port: 8317\nrequest-retry: 3\ndebug: false\napi-keys: [client]\nremote-management: {secret-key: test-password}\n"
+	raw := "port: 8317\nrequest-retry: 3\ndebug: false\napi-keys: [{key: client}]\nremote-management: {secret-key: test-password}\n"
 	if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}

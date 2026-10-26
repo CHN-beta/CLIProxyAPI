@@ -104,11 +104,18 @@ management:
 
 # Client authentication for the proxy API. These are not upstream provider keys.
 access:
-  # API keys for authentication
+  # Client API keys accepted by the proxy.
+  #   key:   required secret presented by clients.
+  #   name:  optional label shown by the Management API and billing views.
+  #   quota: optional monthly spending cap in USD. Omit for unlimited usage.
   api-keys:
-    - "your-api-key-1"
-    - "your-api-key-2"
-    - "your-api-key-3"
+    - key: "your-api-key-1"
+      name: "key-1"
+      quota: 10.00
+    - key: "your-api-key-2"
+      name: "key-2"
+    - key: "your-api-key-3"
+      name: "key-3"
 
 # Optional credential concurrency and observation contracts.
 
@@ -1184,6 +1191,12 @@ observability:
     # The local Redis RESP usage output is disabled.
     # Default: 60. Max: 3600.
     redis-usage-queue-retention-seconds: 60
+
+    # Optional PostgreSQL connection string for per-request API key usage and
+    # monthly billing totals used by client key quotas. When unset, usage is
+    # still tracked in memory for the lifetime of the process.
+    # Can also be supplied via CLIPROXY_USAGE_POSTGRES_DSN.
+    # postgres-dsn: "postgres://user:password@127.0.0.1:5432/cliproxy?sslmode=disable"
 
   # Enable pprof HTTP debug server (host:port). Keep it bound to localhost for safety.
   pprof:

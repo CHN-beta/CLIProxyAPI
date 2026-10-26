@@ -88,7 +88,7 @@ server:
   max-request-body-bytes: 64
 access:
   api-keys:
-    - test-key
+    - key: test-key
 observability:
   logs:
     request-log: true
@@ -142,7 +142,7 @@ server:
   max-request-body-bytes: 64
 access:
   api-keys:
-    - test-key
+    - key: test-key
 `)
 			srv := newTestServerWithConfig(t, cfgNoLog)
 			payload := `{"model":"gpt-5","messages":[{"role":"user","content":"` + strings.Repeat("x", 128) + `"}]}`
@@ -166,7 +166,7 @@ server:
   max-request-body-bytes: 128
 access:
   api-keys:
-    - test-key
+    - key: test-key
 `)
 		srv := newTestServerWithConfig(t, cfgZstd)
 
@@ -205,7 +205,7 @@ server:
   max-request-body-bytes: 64
 access:
   api-keys:
-    - test-key
+    - key: test-key
 `)
 		srv := newTestServerWithConfig(t, cfgPluginAuth)
 		fallbackProvider := &bodyReadingAccessProvider{}
@@ -236,7 +236,7 @@ access:
 		cfgDefault := parseTestServerConfigYAML(t, `config-version: 8
 access:
   api-keys:
-    - test-key
+    - key: test-key
 `)
 		srv := newTestServerWithConfig(t, cfgDefault)
 
@@ -255,7 +255,7 @@ server:
   max-request-body-bytes: 32
 access:
   api-keys:
-    - test-key
+    - key: test-key
 `)
 		srv.UpdateClients(cfgReloaded)
 
@@ -271,7 +271,7 @@ access:
 
 	t.Run("exact boundary body is accepted", func(t *testing.T) {
 		exactPayload := `{"model":"gpt-5","input":"ok"}`
-		cfgExact := parseTestServerConfigYAML(t, "config-version: 8\nserver:\n  max-request-body-bytes: 30\naccess:\n  api-keys:\n    - test-key\n")
+		cfgExact := parseTestServerConfigYAML(t, "config-version: 8\nserver:\n  max-request-body-bytes: 30\naccess:\n  api-keys:\n    - key: test-key\n")
 		srvExact := newTestServerWithConfig(t, cfgExact)
 		if len(exactPayload) != 30 {
 			t.Fatalf("len(exactPayload) = %d, want 30", len(exactPayload))
@@ -287,7 +287,7 @@ access:
 	})
 
 	t.Run("negative limit disables request body cap", func(t *testing.T) {
-		cfgNegative := parseTestServerConfigYAML(t, "config-version: 8\nserver:\n  max-request-body-bytes: -1\naccess:\n  api-keys:\n    - test-key\n")
+		cfgNegative := parseTestServerConfigYAML(t, "config-version: 8\nserver:\n  max-request-body-bytes: -1\naccess:\n  api-keys:\n    - key: test-key\n")
 		srvNegative := newTestServerWithConfig(t, cfgNegative)
 		payload := `{"model":"gpt-5","input":"` + strings.Repeat("a", 256) + `"}`
 		reqNeg := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(payload))
@@ -301,7 +301,7 @@ access:
 	})
 
 	t.Run("multipart chunked body exceeding limit returns 413", func(t *testing.T) {
-		cfgMultipart := parseTestServerConfigYAML(t, "config-version: 8\nserver:\n  max-request-body-bytes: 30\naccess:\n  api-keys:\n    - test-key\n")
+		cfgMultipart := parseTestServerConfigYAML(t, "config-version: 8\nserver:\n  max-request-body-bytes: 30\naccess:\n  api-keys:\n    - key: test-key\n")
 		srvMultipart := newTestServerWithConfig(t, cfgMultipart)
 		var multipartBuf bytes.Buffer
 		mw := multipart.NewWriter(&multipartBuf)
@@ -326,7 +326,7 @@ access:
 	})
 
 	t.Run("zstd decompressed body exceeding limit with request-log enabled returns 413", func(t *testing.T) {
-		cfgZstdWithLog := parseTestServerConfigYAML(t, "config-version: 8\nserver:\n  max-request-body-bytes: 128\naccess:\n  api-keys:\n    - test-key\nobservability:\n  logs:\n    request-log: true\n")
+		cfgZstdWithLog := parseTestServerConfigYAML(t, "config-version: 8\nserver:\n  max-request-body-bytes: 128\naccess:\n  api-keys:\n    - key: test-key\nobservability:\n  logs:\n    request-log: true\n")
 		srvZstdLog := newTestServerWithConfig(t, cfgZstdWithLog)
 		uncompressed := []byte(`{"model":"gpt-5","input":"` + strings.Repeat("z", 512) + `"}`)
 		var compressed bytes.Buffer
@@ -353,7 +353,7 @@ access:
 
 	t.Run("MaxInt64 limit does not overflow zstd LimitReader", func(t *testing.T) {
 		exactPayload := `{"model":"gpt-5","input":"ok"}`
-		cfgMaxInt64 := parseTestServerConfigYAML(t, "config-version: 8\naccess:\n  api-keys:\n    - test-key\nobservability:\n  logs:\n    request-log: true\n")
+		cfgMaxInt64 := parseTestServerConfigYAML(t, "config-version: 8\naccess:\n  api-keys:\n    - key: test-key\nobservability:\n  logs:\n    request-log: true\n")
 		cfgMaxInt64.MaxRequestBodyBytes = math.MaxInt64
 		srvMaxInt64 := newTestServerWithConfig(t, cfgMaxInt64)
 		var smallZstd bytes.Buffer
