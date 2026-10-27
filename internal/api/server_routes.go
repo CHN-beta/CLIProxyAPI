@@ -91,6 +91,12 @@ func (s *Server) setupRoutes() {
 		v1.GET("/live/:call_id", s.codexLiveHandler.HandleSideband)
 	}
 
+	// Client self-service quota and usage endpoints. They intentionally bypass
+	// AuthMiddleware so a key whose monthly quota is exhausted can still read
+	// its own usage instead of receiving 429 Too Many Requests.
+	s.engine.GET("/v1/quota", s.handleClientQuota)
+	s.engine.GET("/v1/usage", s.handleClientQuota)
+
 	realtimeAuth := realtimeAuthMiddleware(s.accessManager, s.codexLiveHandler)
 	standardAuth := realtimeStandardAuthMiddleware(s.accessManager)
 	s.engine.GET("/v1/realtime", realtimeAuth, s.codexLiveHandler.HandleRealtimeWebsocket)

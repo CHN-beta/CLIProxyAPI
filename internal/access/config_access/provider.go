@@ -71,37 +71,16 @@ func (p *provider) Authenticate(_ context.Context, r *http.Request) (*sdkaccess.
 	if len(p.entries) == 0 {
 		return nil, sdkaccess.NewNotHandledError()
 	}
-	authHeader := r.Header.Get("Authorization")
-	authHeaderGoogle := r.Header.Get("X-Goog-Api-Key")
-	authHeaderAnthropic := r.Header.Get("X-Api-Key")
-	queryKey := ""
-	queryAuthToken := ""
-	if r.URL != nil {
-		queryKey = r.URL.Query().Get("key")
-		queryAuthToken = r.URL.Query().Get("auth_token")
-	}
-	if authHeader == "" && authHeaderGoogle == "" && authHeaderAnthropic == "" && queryKey == "" && queryAuthToken == "" {
+	candidates, provided := RequestAPIKeyCandidates(r)
+	if !provided {
 		return nil, sdkaccess.NewNoCredentialsError()
 	}
 
-	apiKey := extractBearerToken(authHeader)
-
-	candidates := []struct {
-		value  string
-		source string
-	}{
-		{apiKey, "authorization"},
-		{authHeaderGoogle, "x-goog-api-key"},
-		{authHeaderAnthropic, "x-api-key"},
-		{queryKey, "query-key"},
-		{queryAuthToken, "query-auth-token"},
-	}
-
 	for _, candidate := range candidates {
-		if candidate.value == "" {
+		if candidate.Value == "" {
 			continue
 		}
-		entry, ok := p.entries[candidate.value]
+		entry, ok := p.entries[candidate.Value]
 		if !ok {
 			continue
 		}
@@ -113,14 +92,53 @@ func (p *provider) Authenticate(_ context.Context, r *http.Request) (*sdkaccess.
 		}
 		return &sdkaccess.Result{
 			Provider:  p.Identifier(),
-			Principal: candidate.value,
+			Principal: candidate.Value,
 			Metadata: map[string]string{
-				"source": candidate.source,
+				"source": candidate.Source,
 			},
 		}, nil
 	}
 
 	return nil, sdkaccess.NewInvalidCredentialError()
+}
+
+// APIKeyCandidate is one client credential source in the precedence order the
+// config access provider evaluates it.
+type APIKeyCandidate struct {
+	// Value is the raw credential; empty when the source was not provided.
+	Value string
+	// Source identifies the credential source in authentication metadata.
+	Source string
+}
+
+// RequestAPIKeyCandidates extracts client credential candidates from r in the
+// same precedence order used for config API keys. The bool reports whether the
+// request supplied any credential source at all, which distinguishes a missing
+// credential from an invalid one.
+func RequestAPIKeyCandidates(r *http.Request) ([]APIKeyCandidate, bool) {
+	if r == nil {
+		return nil, false
+	}
+	authHeader := r.Header.Get("Authorization")
+	authHeaderGoogle := r.Header.Get("X-Goog-Api-Key")
+	authHeaderAnthropic := r.Header.Get("X-Api-Key")
+	queryKey := ""
+	queryAuthToken := ""
+	if r.URL != nil {
+		queryKey = r.URL.Query().Get("key")
+		queryAuthToken = r.URL.Query().Get("auth_token")
+	}
+	if authHeader == "" && authHeaderGoogle == "" && authHeaderAnthropic == "" && queryKey == "" && queryAuthToken == "" {
+		return nil, false
+	}
+
+	return []APIKeyCandidate{
+		{Value: extractBearerToken(authHeader), Source: "authorization"},
+		{Value: authHeaderGoogle, Source: "x-goog-api-key"},
+		{Value: authHeaderAnthropic, Source: "x-api-key"},
+		{Value: queryKey, Source: "query-key"},
+		{Value: queryAuthToken, Source: "query-auth-token"},
+	}, true
 }
 
 func extractBearerToken(header string) string {
