@@ -13,11 +13,13 @@ import (
 )
 
 // clientQuotaResponse is the self-service quota and usage payload for one
-// client API key. The raw key is never echoed back.
+// client API key. The raw key is never echoed back. ResetsAt is the start of
+// next month in local time, encoded as UTC RFC3339.
 type clientQuotaResponse struct {
 	Name         string   `json:"name,omitempty"`
 	KeyHash      string   `json:"key_hash"`
 	CurrentMonth string   `json:"current_month"`
+	ResetsAt     string   `json:"resets_at"`
 	Quota        *float64 `json:"quota"`
 	Used         float64  `json:"used"`
 	Remaining    *float64 `json:"remaining"`
@@ -55,6 +57,7 @@ func (s *Server) handleClientQuota(c *gin.Context) {
 		Name:         entry.name,
 		KeyHash:      keyHash,
 		CurrentMonth: billing.MonthKey(now),
+		ResetsAt:     nextMonthReset(now),
 		Used:         used,
 	}
 	if entry.quota != nil {
@@ -106,6 +109,16 @@ func (s *Server) lookupQuotaAPIKey(candidates []configaccess.APIKeyCandidate) (q
 	}
 
 	return quotaKeyEntry{}, false
+}
+
+// nextMonthReset returns the start of the month after now in now's local
+// timezone, encoded as UTC RFC3339 so clients can render the reset instant
+// without guessing the server's zone.
+func nextMonthReset(now time.Time) string {
+	localNow := now.Local()
+	return time.Date(localNow.Year(), localNow.Month()+1, 1, 0, 0, 0, 0, localNow.Location()).
+		UTC().
+		Format(time.RFC3339)
 }
 
 // abortQuotaAuth writes the standard OpenAI-compatible authentication error.

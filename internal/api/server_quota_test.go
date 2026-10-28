@@ -76,6 +76,7 @@ type quotaResponseBody struct {
 	Name         string   `json:"name"`
 	KeyHash      string   `json:"key_hash"`
 	CurrentMonth string   `json:"current_month"`
+	ResetsAt     string   `json:"resets_at"`
 	Quota        *float64 `json:"quota"`
 	Used         float64  `json:"used"`
 	Remaining    *float64 `json:"remaining"`
@@ -117,6 +118,35 @@ func requireQuotaFloat(t *testing.T, label string, got, want float64) {
 	t.Helper()
 	if math.Abs(got-want) > 1e-9 {
 		t.Fatalf("%s = %v, want %v", label, got, want)
+	}
+}
+
+// requireNextMonthReset asserts resets_at is the local start of next month
+// rendered as UTC RFC3339.
+func requireNextMonthReset(t *testing.T, resetsAt string) {
+	t.Helper()
+	parsed, err := time.Parse(time.RFC3339, resetsAt)
+	if err != nil {
+		t.Fatalf("resets_at = %q is not RFC3339: %v", resetsAt, err)
+	}
+	if parsed.Location() != time.UTC {
+		t.Fatalf("resets_at = %q is not UTC", resetsAt)
+	}
+	local := parsed.Local()
+	if local.Day() != 1 || local.Hour() != 0 || local.Minute() != 0 || local.Second() != 0 || local.Nanosecond() != 0 {
+		t.Fatalf("resets_at = %q is not the start of a month in local time", resetsAt)
+	}
+	expected := time.Date(
+		time.Now().Year(),
+		time.Now().Month()+1,
+		1, 0, 0, 0, 0,
+		time.Now().Location(),
+	)
+	if !parsed.Equal(expected) {
+		t.Fatalf("resets_at = %q, want next month start %q", resetsAt, expected.UTC().Format(time.RFC3339))
+	}
+	if !parsed.After(time.Now()) {
+		t.Fatalf("resets_at = %q is not in the future", resetsAt)
 	}
 }
 
@@ -247,6 +277,7 @@ func TestQuotaEndpointReportsPartialUsage(t *testing.T) {
 			if body.CurrentMonth != billing.MonthKey(time.Now()) {
 				t.Fatalf("current_month = %q", body.CurrentMonth)
 			}
+			requireNextMonthReset(t, body.ResetsAt)
 			if body.Quota == nil {
 				t.Fatal("quota = null, want 20")
 			}
