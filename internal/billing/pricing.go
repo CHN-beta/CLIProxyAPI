@@ -42,20 +42,20 @@ func (r pricingRule) rate(inputTokens int64) Pricing {
 	return r.pricing
 }
 
-var argonPricing = Pricing{Input: 0.40, CacheRead: 0.02, Output: 2.00}
+var argonPricing = Pricing{Input: 0.20, CacheRead: 0.01, Output: 1.00}
 
 var fixedPricing = map[string]Pricing{
-	"gemini-3.8-flash":              {Input: 0.15, CacheRead: 0.015, Output: 0.75},
-	"gemini-3.7-flash":              {Input: 0.15, CacheRead: 0.015, Output: 0.75},
-	"gemini-3.6-flash":              {Input: 0.15, CacheRead: 0.015, Output: 0.75},
-	"gemini-3.5-flash":              {Input: 0.30, CacheRead: 0.03, Output: 1.50},
-	"gemini-3.5-flash-lite":         {Input: 0.06, CacheRead: 0.006, Output: 0.50},
-	"gemini-3-flash":                {Input: 0.10, CacheRead: 0.01, Output: 0.60},
-	"gemini-3-flash-preview":        {Input: 0.10, CacheRead: 0.01, Output: 0.60},
-	"gemini-3.1-flash-lite":         {Input: 0.05, CacheRead: 0.005, Output: 0.30},
-	"gemini-3.1-flash-lite-preview": {Input: 0.05, CacheRead: 0.005, Output: 0.30},
-	"gemini-2.5-flash":              {Input: 0.06, CacheRead: 0.006, Output: 0.50},
-	"gemini-2.5-flash-lite":         {Input: 0.02, CacheRead: 0.002, Output: 0.08},
+	"gemini-3.8-flash":              {Input: 0.075, CacheRead: 0.0075, Output: 0.375},
+	"gemini-3.7-flash":              {Input: 0.075, CacheRead: 0.0075, Output: 0.375},
+	"gemini-3.6-flash":              {Input: 0.075, CacheRead: 0.0075, Output: 0.375},
+	"gemini-3.5-flash":              {Input: 0.15, CacheRead: 0.015, Output: 0.75},
+	"gemini-3.5-flash-lite":         {Input: 0.03, CacheRead: 0.003, Output: 0.25},
+	"gemini-3-flash":                {Input: 0.05, CacheRead: 0.005, Output: 0.30},
+	"gemini-3-flash-preview":        {Input: 0.05, CacheRead: 0.005, Output: 0.30},
+	"gemini-3.1-flash-lite":         {Input: 0.025, CacheRead: 0.0025, Output: 0.15},
+	"gemini-3.1-flash-lite-preview": {Input: 0.025, CacheRead: 0.0025, Output: 0.15},
+	"gemini-2.5-flash":              {Input: 0.03, CacheRead: 0.003, Output: 0.25},
+	"gemini-2.5-flash-lite":         {Input: 0.01, CacheRead: 0.001, Output: 0.04},
 	"deepseek-flash":                {Input: 0.44, CacheRead: 0.014, Output: 1.32},
 	"deepseek-v4-flash":             {Input: 0.44, CacheRead: 0.014, Output: 1.32},
 	"deepseek-chat":                 {Input: 0.44, CacheRead: 0.014, Output: 1.32},
@@ -64,13 +64,13 @@ var fixedPricing = map[string]Pricing{
 }
 
 var tieredPricing = map[string]pricingRule{
-	"gemini-3.1-pro":         {pricing: Pricing{Input: 0.40, CacheRead: 0.04, Output: 2.40}, threshold: 200_000, above: Pricing{Input: 0.80, CacheRead: 0.08, Output: 3.60}},
-	"gemini-3.1-pro-preview": {pricing: Pricing{Input: 0.40, CacheRead: 0.04, Output: 2.40}, threshold: 200_000, above: Pricing{Input: 0.80, CacheRead: 0.08, Output: 3.60}},
-	"gemini-3-pro":           {pricing: Pricing{Input: 0.40, CacheRead: 0.04, Output: 2.40}, threshold: 200_000, above: Pricing{Input: 0.80, CacheRead: 0.08, Output: 3.60}},
-	"gemini-3-pro-preview":   {pricing: Pricing{Input: 0.40, CacheRead: 0.04, Output: 2.40}, threshold: 200_000, above: Pricing{Input: 0.80, CacheRead: 0.08, Output: 3.60}},
-	"gemini-2.5-pro":         {pricing: Pricing{Input: 0.25, CacheRead: 0.025, Output: 2.00}, threshold: 200_000, above: Pricing{Input: 0.50, CacheRead: 0.05, Output: 3.00}},
-	"claude-haiku-5-5":       {pricing: Pricing{Input: 0.02, CacheRead: 0.002, CacheWrite: 0.025, Output: 0.10}, threshold: 100_000, above: Pricing{Input: 0.10, CacheRead: 0.01, CacheWrite: 0.125, Output: 0.50}},
-	"claude-haiku-4-5":       {pricing: Pricing{Input: 0.02, CacheRead: 0.002, CacheWrite: 0.025, Output: 0.10}, threshold: 100_000, above: Pricing{Input: 0.10, CacheRead: 0.01, CacheWrite: 0.125, Output: 0.50}},
+	"gemini-3.1-pro":         {pricing: Pricing{Input: 0.20, CacheRead: 0.02, Output: 1.20}, threshold: 200_000, above: Pricing{Input: 0.40, CacheRead: 0.04, Output: 1.80}},
+	"gemini-3.1-pro-preview": {pricing: Pricing{Input: 0.20, CacheRead: 0.02, Output: 1.20}, threshold: 200_000, above: Pricing{Input: 0.40, CacheRead: 0.04, Output: 1.80}},
+	"gemini-3-pro":           {pricing: Pricing{Input: 0.20, CacheRead: 0.02, Output: 1.20}, threshold: 200_000, above: Pricing{Input: 0.40, CacheRead: 0.04, Output: 1.80}},
+	"gemini-3-pro-preview":   {pricing: Pricing{Input: 0.20, CacheRead: 0.02, Output: 1.20}, threshold: 200_000, above: Pricing{Input: 0.40, CacheRead: 0.04, Output: 1.80}},
+	"gemini-2.5-pro":         {pricing: Pricing{Input: 0.125, CacheRead: 0.0125, Output: 1.00}, threshold: 200_000, above: Pricing{Input: 0.25, CacheRead: 0.025, Output: 1.50}},
+	"claude-haiku-5-5":       {pricing: Pricing{Input: 0.10, CacheRead: 0.01, CacheWrite: 0.125, Output: 0.50}},
+	"claude-haiku-4-5":       {pricing: Pricing{Input: 0.10, CacheRead: 0.01, CacheWrite: 0.125, Output: 0.50}},
 }
 
 // datedPricing applies to exact base names and their dated variants, such as
@@ -79,15 +79,15 @@ var datedPricing = []struct {
 	base string
 	rule pricingRule
 }{
-	{base: "claude-opus-5-5", rule: pricingRule{pricing: Pricing{Input: 0.80, CacheRead: 0.04, CacheWrite: 1.00, Output: 4.00}}},
-	{base: "claude-opus-5", rule: pricingRule{pricing: Pricing{Input: 0.80, CacheRead: 0.04, CacheWrite: 1.00, Output: 4.00}}},
-	{base: "claude-opus-4-8", rule: pricingRule{pricing: Pricing{Input: 0.80, CacheRead: 0.04, CacheWrite: 1.00, Output: 4.00}}},
-	{base: "claude-opus-4-7", rule: pricingRule{pricing: Pricing{Input: 0.80, CacheRead: 0.04, CacheWrite: 1.00, Output: 4.00}}},
-	{base: "claude-opus-4-6", rule: pricingRule{pricing: Pricing{Input: 0.80, CacheRead: 0.04, CacheWrite: 1.00, Output: 4.00}}},
-	{base: "claude-sonnet-5-5", rule: pricingRule{pricing: Pricing{Input: 0.40, CacheRead: 0.02, CacheWrite: 0.50, Output: 2.00}}},
-	{base: "claude-sonnet-5", rule: pricingRule{pricing: Pricing{Input: 0.40, CacheRead: 0.02, CacheWrite: 0.50, Output: 2.00}}},
-	{base: "claude-sonnet-4-6", rule: pricingRule{pricing: Pricing{Input: 0.60, CacheRead: 0.06, CacheWrite: 0.75, Output: 3.00}}},
-	{base: "claude-sonnet-4-5", rule: pricingRule{pricing: Pricing{Input: 0.60, CacheRead: 0.06, CacheWrite: 0.75, Output: 3.00}}},
+	{base: "claude-opus-5-5", rule: pricingRule{pricing: Pricing{Input: 0.50, CacheRead: 0.05, CacheWrite: 0.625, Output: 2.50}}},
+	{base: "claude-opus-5", rule: pricingRule{pricing: Pricing{Input: 0.50, CacheRead: 0.05, CacheWrite: 0.625, Output: 2.50}}},
+	{base: "claude-opus-4-8", rule: pricingRule{pricing: Pricing{Input: 0.50, CacheRead: 0.05, CacheWrite: 0.625, Output: 2.50}}},
+	{base: "claude-opus-4-7", rule: pricingRule{pricing: Pricing{Input: 0.50, CacheRead: 0.05, CacheWrite: 0.625, Output: 2.50}}},
+	{base: "claude-opus-4-6", rule: pricingRule{pricing: Pricing{Input: 0.50, CacheRead: 0.05, CacheWrite: 0.625, Output: 2.50}}},
+	{base: "claude-sonnet-5-5", rule: pricingRule{pricing: Pricing{Input: 0.20, CacheRead: 0.02, CacheWrite: 0.25, Output: 1.00}}},
+	{base: "claude-sonnet-5", rule: pricingRule{pricing: Pricing{Input: 0.20, CacheRead: 0.02, CacheWrite: 0.25, Output: 1.00}}},
+	{base: "claude-sonnet-4-6", rule: pricingRule{pricing: Pricing{Input: 0.30, CacheRead: 0.03, CacheWrite: 0.375, Output: 1.50}}},
+	{base: "claude-sonnet-4-5", rule: pricingRule{pricing: Pricing{Input: 0.30, CacheRead: 0.03, CacheWrite: 0.375, Output: 1.50}}},
 	{base: "claude-haiku-5-5", rule: tieredPricing["claude-haiku-5-5"]},
 	{base: "claude-haiku-4-5", rule: tieredPricing["claude-haiku-4-5"]},
 }

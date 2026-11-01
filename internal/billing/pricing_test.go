@@ -24,44 +24,44 @@ func TestCostUSDRates(t *testing.T) {
 			name:   "argon prefix input",
 			model:  "gemini-4-argon-preview",
 			tokens: TokenCounts{Input: million, UncachedInput: million},
-			want:   0.40,
+			want:   0.20,
 		},
 		{
 			name:   "flash input and output",
 			model:  "gemini-3.5-flash",
 			tokens: TokenCounts{Input: million, UncachedInput: million, Output: million},
-			want:   1.80,
+			want:   0.90,
 		},
 		{
 			name:   "thinking suffix and provider prefix",
 			model:  "vertex/gemini-3.5-flash-HIGH",
 			tokens: TokenCounts{Input: million, UncachedInput: million},
-			want:   0.30,
+			want:   0.15,
 		},
 		{
 			name:   "cache read",
 			model:  "gemini-3.5-flash",
 			tokens: TokenCounts{Input: million, CacheRead: million},
-			want:   0.03,
+			want:   0.015,
 		},
 		{
 			name:   "alias resolves when model unknown",
 			model:  "not-a-model",
 			alias:  "vertex/claude-opus-4-6-20260205",
 			tokens: TokenCounts{Input: million, UncachedInput: million},
-			want:   0.80,
+			want:   0.50,
 		},
 		{
 			name:   "claude dated cache write",
 			model:  "claude-opus-4-6-20260205",
 			tokens: TokenCounts{CacheWrite: million},
-			want:   1.00,
+			want:   0.625,
 		},
 		{
 			name:   "output and reasoning are each charged once",
 			model:  "claude-sonnet-4-5",
 			tokens: TokenCounts{Output: 500_000, Reasoning: 500_000},
-			want:   3.00,
+			want:   1.50,
 		},
 		{
 			name:   "deepseek peak",
@@ -86,7 +86,7 @@ func TestCostUSDRates(t *testing.T) {
 			model:  "",
 			alias:  "gemini-4-argon",
 			tokens: TokenCounts{Output: million},
-			want:   2.00,
+			want:   1.00,
 		},
 	}
 
@@ -109,11 +109,11 @@ func TestLookupPricingTiers(t *testing.T) {
 		wantRead    float64
 		wantOutput  float64
 	}{
-		{name: "gemini 3.1 pro at threshold", model: "gemini-3.1-pro", inputTokens: 200_000, wantInput: 0.40, wantRead: 0.04, wantOutput: 2.40},
-		{name: "gemini 3.1 pro above threshold", model: "gemini-3.1-pro", inputTokens: 200_001, wantInput: 0.80, wantRead: 0.08, wantOutput: 3.60},
-		{name: "gemini 2.5 pro above threshold", model: "gemini-2.5-pro", inputTokens: 250_000, wantInput: 0.50, wantRead: 0.05, wantOutput: 3.00},
-		{name: "haiku at threshold", model: "claude-haiku-4-5", inputTokens: 100_000, wantInput: 0.02, wantRead: 0.002, wantOutput: 0.10},
-		{name: "haiku dated above threshold", model: "claude-haiku-5-5-20260101", inputTokens: 100_001, wantInput: 0.10, wantRead: 0.01, wantOutput: 0.50},
+		{name: "gemini 3.1 pro at threshold", model: "gemini-3.1-pro", inputTokens: 200_000, wantInput: 0.20, wantRead: 0.02, wantOutput: 1.20},
+		{name: "gemini 3.1 pro above threshold", model: "gemini-3.1-pro", inputTokens: 200_001, wantInput: 0.40, wantRead: 0.04, wantOutput: 1.80},
+		{name: "gemini 2.5 pro above threshold", model: "gemini-2.5-pro", inputTokens: 250_000, wantInput: 0.25, wantRead: 0.025, wantOutput: 1.50},
+		{name: "haiku flat rate", model: "claude-haiku-4-5", inputTokens: 100_000, wantInput: 0.10, wantRead: 0.01, wantOutput: 0.50},
+		{name: "haiku dated flat rate", model: "claude-haiku-5-5-20260101", inputTokens: 250_000, wantInput: 0.10, wantRead: 0.01, wantOutput: 0.50},
 		{name: "haiku preview is unknown", model: "claude-haiku-4-5-preview", inputTokens: 1, wantInput: 0},
 	}
 	for _, tc := range tests {
@@ -195,7 +195,7 @@ func TestCostUSDForRecord(t *testing.T) {
 		},
 	}
 	cost, counts := CostUSDForRecord(record)
-	want := 0.5*0.06 + 0.5*0.006 + 1.0*0.50
+	want := 0.5*0.03 + 0.5*0.003 + 1.0*0.25
 	if !almostEqual(cost, want) {
 		t.Fatalf("cost = %v, want %v (counts=%+v)", cost, want, counts)
 	}
