@@ -76,6 +76,18 @@ func TestCostUSDRates(t *testing.T) {
 			want:   0.014,
 		},
 		{
+			name:   "doubao seed evolving input cache and output",
+			model:  "doubao-seed-evolving",
+			tokens: TokenCounts{Input: 2 * million, UncachedInput: million, CacheRead: million, Output: million},
+			want:   0.88 + 0.176 + 4.40,
+		},
+		{
+			name:   "doubao seed evolving latest version prefix",
+			model:  "doubao/doubao-seed-evolving-latest-version",
+			tokens: TokenCounts{Input: million, UncachedInput: million},
+			want:   0.88,
+		},
+		{
 			name:   "unknown model is free",
 			model:  "mystery-1",
 			tokens: TokenCounts{Input: million, UncachedInput: million},

@@ -42,7 +42,10 @@ func (r pricingRule) rate(inputTokens int64) Pricing {
 	return r.pricing
 }
 
-var argonPricing = Pricing{Input: 0.20, CacheRead: 0.01, Output: 1.00}
+var (
+	argonPricing              = Pricing{Input: 0.20, CacheRead: 0.01, Output: 1.00}
+	doubaoSeedEvolvingPricing = Pricing{Input: 0.88, CacheRead: 0.176, Output: 4.40}
+)
 
 var fixedPricing = map[string]Pricing{
 	"gemini-3.8-flash":              {Input: 0.075, CacheRead: 0.0075, Output: 0.375},
@@ -61,6 +64,13 @@ var fixedPricing = map[string]Pricing{
 	"deepseek-chat":                 {Input: 0.44, CacheRead: 0.014, Output: 1.32},
 	"deepseek-v4-pro":               {Input: 1.32, CacheRead: 0.042, Output: 3.96},
 	"deepseek-reasoner":             {Input: 1.32, CacheRead: 0.042, Output: 3.96},
+	"doubao-seed-evolving":          doubaoSeedEvolvingPricing,
+	"doubao-seed-2.1-pro":           doubaoSeedEvolvingPricing,
+	"doubao-seed-2-1-pro":           doubaoSeedEvolvingPricing,
+	"doubao-seed-2.1-turbo":         {Input: 0.44, CacheRead: 0.088, Output: 2.20},
+	"doubao-seed-2-1-turbo":         {Input: 0.44, CacheRead: 0.088, Output: 2.20},
+	"doubao-seed-2.1-lite":          {Input: 0.12, CacheRead: 0.024, Output: 0.40},
+	"doubao-seed-2-1-lite":          {Input: 0.12, CacheRead: 0.024, Output: 0.40},
 }
 
 var tieredPricing = map[string]pricingRule{
@@ -90,6 +100,12 @@ var datedPricing = []struct {
 	{base: "claude-sonnet-4-5", rule: pricingRule{pricing: Pricing{Input: 0.30, CacheRead: 0.03, CacheWrite: 0.375, Output: 1.50}}},
 	{base: "claude-haiku-5-5", rule: tieredPricing["claude-haiku-5-5"]},
 	{base: "claude-haiku-4-5", rule: tieredPricing["claude-haiku-4-5"]},
+	{base: "doubao-seed-2.1-pro", rule: pricingRule{pricing: doubaoSeedEvolvingPricing}},
+	{base: "doubao-seed-2-1-pro", rule: pricingRule{pricing: doubaoSeedEvolvingPricing}},
+	{base: "doubao-seed-2.1-turbo", rule: pricingRule{pricing: fixedPricing["doubao-seed-2.1-turbo"]}},
+	{base: "doubao-seed-2-1-turbo", rule: pricingRule{pricing: fixedPricing["doubao-seed-2-1-turbo"]}},
+	{base: "doubao-seed-2.1-lite", rule: pricingRule{pricing: fixedPricing["doubao-seed-2.1-lite"]}},
+	{base: "doubao-seed-2-1-lite", rule: pricingRule{pricing: fixedPricing["doubao-seed-2-1-lite"]}},
 }
 
 var thinkingSuffixes = []string{"-high", "-medium", "-low", "-minimal", "-thinking"}
@@ -135,6 +151,9 @@ func LookupPricing(model, alias string, inputTokens int64) (Pricing, bool) {
 func lookupNormalizedPricing(name string, inputTokens int64) (Pricing, bool) {
 	if strings.HasPrefix(name, "gemini-4-argon") {
 		return argonPricing, true
+	}
+	if strings.HasPrefix(name, "doubao-seed-evolving") {
+		return doubaoSeedEvolvingPricing, true
 	}
 	if pricing, ok := fixedPricing[name]; ok {
 		return pricing, true
