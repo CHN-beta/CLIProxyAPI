@@ -29,6 +29,7 @@ type Params struct {
 	ToolNameMap                map[string]string
 	SanitizedNameMap           map[string]string
 	SawToolCall                bool
+	SawVisibleText             bool
 	HasFinalEvents             bool
 	FinishReason               string
 	InputTokens                int64
@@ -42,19 +43,24 @@ type Params struct {
 
 const geminiMalformedFunctionCallErrorPayload = `{"type":"error","error":{"type":"api_error","message":"Gemini response finished with MALFORMED_FUNCTION_CALL"}}`
 
-func isGeminiMalformedFunctionCall(finishReason string, sawToolCall bool) bool {
-	return finishReason == "MALFORMED_FUNCTION_CALL" && !sawToolCall
+func isGeminiMalformedFunctionCall(finishReason string, sawToolCall, sawVisibleText bool) bool {
+	return finishReason == "MALFORMED_FUNCTION_CALL" && !sawToolCall && !sawVisibleText
 }
 
-func resolveGeminiClaudeStopReason(finishReason string, sawToolCall bool) string {
+func resolveGeminiClaudeStopReason(finishReason string, sawToolCall, sawVisibleText bool) string {
 	if sawToolCall {
 		return "tool_use"
 	}
 	switch finishReason {
 	case "MAX_TOKENS":
 		return "max_tokens"
-	case "SAFETY", "RECITATION", "PROHIBITED_CONTENT", "SPII", "BLOCKLIST", "IMAGE_SAFETY", "MALFORMED_RESPONSE":
+	case "SAFETY", "RECITATION", "PROHIBITED_CONTENT", "SPII", "BLOCKLIST", "IMAGE_SAFETY":
 		return "refusal"
+	case "MALFORMED_RESPONSE":
+		if !sawVisibleText {
+			return "refusal"
+		}
+		return "end_turn"
 	case "STOP", "FINISH_REASON_UNSPECIFIED", "UNKNOWN", "":
 		return "end_turn"
 	default:
@@ -109,7 +115,7 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 	}
 
 	if bytes.Equal(rawJSON, []byte("[DONE]")) {
-		if isGeminiMalformedFunctionCall(p.FinishReason, p.SawToolCall) {
+		if isGeminiMalformedFunctionCall(p.FinishReason, p.SawToolCall, p.SawVisibleText) {
 			if p.ResponseType != 0 {
 				flushPendingToolInput()
 				appendEvent("content_block_stop", fmt.Sprintf(`{"type":"content_block_stop","index":%d}`, p.ResponseIndex))
@@ -136,7 +142,7 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 				p.ResponseType = 0
 			}
 			if !p.HasFinalEvents {
-				stopReason := resolveGeminiClaudeStopReason(p.FinishReason, p.SawToolCall)
+				stopReason := resolveGeminiClaudeStopReason(p.FinishReason, p.SawToolCall, p.SawVisibleText)
 				template := []byte(fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":"%s","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`, stopReason))
 				template, _ = sjson.SetBytes(template, "usage.output_tokens", p.OutputTokens)
 				template, _ = sjson.SetBytes(template, "usage.input_tokens", p.InputTokens)
@@ -152,7 +158,7 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 		return [][]byte{}
 	}
 
-	if isGeminiMalformedFunctionCall(p.FinishReason, p.SawToolCall) && p.HasFinalEvents {
+	if isGeminiMalformedFunctionCall(p.FinishReason, p.SawToolCall, p.SawVisibleText) && p.HasFinalEvents {
 		return [][]byte{}
 	}
 
@@ -368,6 +374,9 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 				if hasThoughtSignature {
 					appendCarrierThinkingBlock(partSig)
 				}
+				if partText != "" {
+					(*param).(*Params).SawVisibleText = true
+				}
 				if (*param).(*Params).ResponseType == 1 {
 					data, _ := sjson.SetBytes([]byte(fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"text_delta","text":""}}`, (*param).(*Params).ResponseIndex)), "delta.text", partText)
 					appendEvent("content_block_delta", string(data))
@@ -418,7 +427,7 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 		(*param).(*Params).CachedTokens = cachedTokens
 	}
 
-	if isGeminiMalformedFunctionCall((*param).(*Params).FinishReason, (*param).(*Params).SawToolCall) && !(*param).(*Params).HasFinalEvents {
+	if isGeminiMalformedFunctionCall((*param).(*Params).FinishReason, (*param).(*Params).SawToolCall, (*param).(*Params).SawVisibleText) && !(*param).(*Params).HasFinalEvents {
 		if (*param).(*Params).ResponseType != 0 {
 			flushPendingToolInput()
 			appendEvent("content_block_stop", fmt.Sprintf(`{"type":"content_block_stop","index":%d}`, (*param).(*Params).ResponseIndex))
@@ -443,7 +452,7 @@ func ConvertGeminiResponseToClaude(_ context.Context, _ string, originalRequestR
 				(*param).(*Params).ResponseType = 0
 			}
 
-			stopReason := resolveGeminiClaudeStopReason((*param).(*Params).FinishReason, (*param).(*Params).SawToolCall)
+			stopReason := resolveGeminiClaudeStopReason((*param).(*Params).FinishReason, (*param).(*Params).SawToolCall, (*param).(*Params).SawVisibleText)
 			template := []byte(fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":"%s","stop_sequence":null},"usage":{"input_tokens":0,"output_tokens":0}}`, stopReason))
 			template, _ = sjson.SetBytes(template, "usage.output_tokens", (*param).(*Params).OutputTokens)
 			template, _ = sjson.SetBytes(template, "usage.input_tokens", (*param).(*Params).InputTokens)
@@ -497,6 +506,7 @@ func ConvertGeminiResponseToClaudeNonStream(_ context.Context, _ string, origina
 	thinkingBuilder := strings.Builder{}
 	var thinkingSignature string
 	hasToolCall := false
+	hasVisibleText := false
 	var blocks [][]byte
 
 	flushText := func() {
@@ -604,6 +614,7 @@ func ConvertGeminiResponseToClaudeNonStream(_ context.Context, _ string, origina
 					flushText()
 					appendCarrierThinkingBlock(partSig)
 				}
+				hasVisibleText = true
 				textBuilder.WriteString(text.String())
 				continue
 			}
@@ -627,10 +638,10 @@ func ConvertGeminiResponseToClaudeNonStream(_ context.Context, _ string, origina
 	if finish := root.Get("candidates.0.finishReason"); finish.Exists() {
 		finishReason = finish.String()
 	}
-	if isGeminiMalformedFunctionCall(finishReason, hasToolCall) {
+	if isGeminiMalformedFunctionCall(finishReason, hasToolCall, hasVisibleText) {
 		return []byte(geminiMalformedFunctionCallErrorPayload)
 	}
-	out, _ = sjson.SetBytes(out, "stop_reason", resolveGeminiClaudeStopReason(finishReason, hasToolCall))
+	out, _ = sjson.SetBytes(out, "stop_reason", resolveGeminiClaudeStopReason(finishReason, hasToolCall, hasVisibleText))
 
 	if inputTokens == int64(0) && outputTokens == int64(0) && !root.Get("usageMetadata").Exists() {
 		out, _ = sjson.DeleteBytes(out, "usage")

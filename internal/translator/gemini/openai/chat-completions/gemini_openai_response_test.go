@@ -229,6 +229,46 @@ func TestConvertGeminiResponseToOpenAI_NonStopFinishReasonsMapToContentFilter(t 
 	}
 }
 
+func TestConvertGeminiResponseToOpenAI_MalformedFinishReasonsWithVisibleContentMapToStop(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		upstreamReason   string
+		wantNativeReason string
+	}{
+		{upstreamReason: "MALFORMED_RESPONSE", wantNativeReason: "malformed_response"},
+		{upstreamReason: "MALFORMED_FUNCTION_CALL", wantNativeReason: "malformed_function_call"},
+	} {
+		t.Run("stream/"+tc.upstreamReason, func(t *testing.T) {
+			var param any
+			chunk1 := []byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"completed answer"}]}}],"modelVersion":"gemini-4-argon","responseId":"resp-text-malformed"}`)
+			chunk2 := []byte(`{"candidates":[{"content":{"role":"model","parts":[]},"finishReason":"` + tc.upstreamReason + `"}],"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":10,"totalTokenCount":110},"modelVersion":"gemini-4-argon","responseId":"resp-text-malformed"}`)
+
+			out1 := ConvertGeminiResponseToOpenAI(ctx, "gemini-4-argon", nil, nil, chunk1, &param)
+			out2 := ConvertGeminiResponseToOpenAI(ctx, "gemini-4-argon", nil, nil, chunk2, &param)
+			if len(out1) != 1 || len(out2) != 1 {
+				t.Fatalf("expected 1 chunk per call, got %d and %d", len(out1), len(out2))
+			}
+			if got := gjson.GetBytes(out2[0], "choices.0.finish_reason").String(); got != "stop" {
+				t.Fatalf("stream finish_reason = %q, want stop; payload=%s", got, out2[0])
+			}
+			if got := gjson.GetBytes(out2[0], "choices.0.native_finish_reason").String(); got != tc.wantNativeReason {
+				t.Fatalf("stream native_finish_reason = %q, want %q; payload=%s", got, tc.wantNativeReason, out2[0])
+			}
+		})
+
+		t.Run("nonstream/"+tc.upstreamReason, func(t *testing.T) {
+			raw := []byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"completed answer"}]},"finishReason":"` + tc.upstreamReason + `"}],"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":10,"totalTokenCount":110},"modelVersion":"gemini-4-argon","responseId":"resp-text-malformed"}`)
+			out := ConvertGeminiResponseToOpenAINonStream(ctx, "gemini-4-argon", nil, nil, raw, nil)
+			if got := gjson.GetBytes(out, "choices.0.finish_reason").String(); got != "stop" {
+				t.Fatalf("non-stream finish_reason = %q, want stop; payload=%s", got, out)
+			}
+			if got := gjson.GetBytes(out, "choices.0.native_finish_reason").String(); got != tc.wantNativeReason {
+				t.Fatalf("non-stream native_finish_reason = %q, want %q; payload=%s", got, tc.wantNativeReason, out)
+			}
+		})
+	}
+}
+
 func TestConvertGeminiResponseToOpenAI_FinishReasonWithoutInlineUsage(t *testing.T) {
 	ctx := context.Background()
 

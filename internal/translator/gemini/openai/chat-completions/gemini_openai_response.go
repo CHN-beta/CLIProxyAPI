@@ -27,6 +27,7 @@ type convertGeminiResponseToOpenAIChatParams struct {
 	// FunctionIndex tracks tool call indices per candidate index to support multiple candidates.
 	FunctionIndex            map[int]int
 	SawToolCall              map[int]bool
+	SawContent               map[int]bool
 	SawFinishReason          map[int]bool
 	UpstreamFinishReason     map[int]string
 	ModelVersion             string
@@ -60,6 +61,7 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 			UnixTimestamp:            0,
 			FunctionIndex:            make(map[int]int),
 			SawToolCall:              make(map[int]bool),
+			SawContent:               make(map[int]bool),
 			SawFinishReason:          make(map[int]bool),
 			UpstreamFinishReason:     make(map[int]string),
 			SanitizedNameMap:         util.SanitizedToolNameMap(originalRequestRawJSON),
@@ -74,6 +76,9 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 	}
 	if p.SawToolCall == nil {
 		p.SawToolCall = make(map[int]bool)
+	}
+	if p.SawContent == nil {
+		p.SawContent = make(map[int]bool)
 	}
 	if p.SawFinishReason == nil {
 		p.SawFinishReason = make(map[int]bool)
@@ -106,7 +111,7 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 		var doneChunks [][]byte
 		for _, idx := range indices {
 			p.SawFinishReason[idx] = true
-			finishReason, nativeFinishReason := resolveGeminiOpenAIFinishReason(p.UpstreamFinishReason[idx], p.SawToolCall[idx])
+			finishReason, nativeFinishReason := resolveGeminiOpenAIFinishReason(p.UpstreamFinishReason[idx], p.SawToolCall[idx], p.SawContent[idx])
 			template := []byte(`{"id":"","object":"chat.completion.chunk","created":0,"model":"model","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":null},"finish_reason":null,"native_finish_reason":null}]}`)
 			template, _ = sjson.SetBytes(template, "created", p.UnixTimestamp)
 			if p.ModelVersion != "" {
@@ -230,6 +235,9 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 						if partResult.Get("thought").Bool() {
 							template, _ = sjson.SetBytes(template, "choices.0.delta.reasoning_content", text)
 						} else {
+							if text != "" {
+								p.SawContent[candidateIndex] = true
+							}
 							template, _ = sjson.SetBytes(template, "choices.0.delta.content", text)
 						}
 					} else if functionCallResult.Exists() {
@@ -264,6 +272,7 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 						if data == "" {
 							continue
 						}
+						p.SawContent[candidateIndex] = true
 						mimeType := inlineDataResult.Get("mimeType").String()
 						if mimeType == "" {
 							mimeType = inlineDataResult.Get("mime_type").String()
@@ -288,12 +297,13 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 
 			upstreamFinishReason := p.UpstreamFinishReason[candidateIndex]
 			sawToolCall := p.SawToolCall[candidateIndex]
+			sawContent := p.SawContent[candidateIndex]
 			usageExists := gjson.GetBytes(rawJSON, "usageMetadata").Exists()
 			isFinalChunk := upstreamFinishReason != "" && usageExists
 
 			if isFinalChunk {
 				p.SawFinishReason[candidateIndex] = true
-				finishReason, nativeFinishReason := resolveGeminiOpenAIFinishReason(upstreamFinishReason, sawToolCall)
+				finishReason, nativeFinishReason := resolveGeminiOpenAIFinishReason(upstreamFinishReason, sawToolCall, sawContent)
 				template, _ = sjson.SetBytes(template, "choices.0.finish_reason", finishReason)
 				template, _ = sjson.SetBytes(template, "choices.0.native_finish_reason", nativeFinishReason)
 			}
@@ -307,7 +317,7 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 			chunk := append([]byte(nil), baseTemplate...)
 			if upstreamFinishReason := p.UpstreamFinishReason[0]; upstreamFinishReason != "" && !p.SawFinishReason[0] {
 				p.SawFinishReason[0] = true
-				finishReason, nativeFinishReason := resolveGeminiOpenAIFinishReason(upstreamFinishReason, p.SawToolCall[0])
+				finishReason, nativeFinishReason := resolveGeminiOpenAIFinishReason(upstreamFinishReason, p.SawToolCall[0], p.SawContent[0])
 				chunk, _ = sjson.SetBytes(chunk, "choices.0.finish_reason", finishReason)
 				chunk, _ = sjson.SetBytes(chunk, "choices.0.native_finish_reason", nativeFinishReason)
 			}
@@ -388,18 +398,10 @@ func ConvertGeminiResponseToOpenAINonStream(_ context.Context, _ string, origina
 			// Set the index for this choice.
 			choiceTemplate, _ = sjson.SetBytes(choiceTemplate, "index", candidate.Get("index").Int())
 
-			// Set finish reason.
-			if finishReasonResult := candidate.Get("finishReason"); finishReasonResult.Exists() {
-				finishReason := strings.ToLower(finishReasonResult.String())
-				if isGeminiContentFilterFinishReason(finishReasonResult.String()) {
-					finishReason = "content_filter"
-				}
-				choiceTemplate, _ = sjson.SetBytes(choiceTemplate, "finish_reason", finishReason)
-				choiceTemplate, _ = sjson.SetBytes(choiceTemplate, "native_finish_reason", strings.ToLower(finishReasonResult.String()))
-			}
-
+			upstreamFinishReason := strings.ToUpper(strings.TrimSpace(candidate.Get("finishReason").String()))
 			partsResult := candidate.Get("content.parts")
 			hasFunctionCall := false
+			hasVisibleContent := false
 			if partsResult.IsArray() {
 				partsResults := partsResult.Array()
 				var toolCalls [][]byte
@@ -431,6 +433,9 @@ func ConvertGeminiResponseToOpenAINonStream(_ context.Context, _ string, origina
 							hasReasoningContent = true
 							reasoningContent.WriteString(partTextResult.String())
 						} else {
+							if partTextResult.String() != "" {
+								hasVisibleContent = true
+							}
 							hasTextContent = true
 							textContent.WriteString(partTextResult.String())
 						}
@@ -452,6 +457,7 @@ func ConvertGeminiResponseToOpenAINonStream(_ context.Context, _ string, origina
 					} else if inlineDataResult.Exists() {
 						data := inlineDataResult.Get("data").String()
 						if data != "" {
+							hasVisibleContent = true
 							mimeType := inlineDataResult.Get("mimeType").String()
 							if mimeType == "" {
 								mimeType = inlineDataResult.Get("mime_type").String()
@@ -485,6 +491,15 @@ func ConvertGeminiResponseToOpenAINonStream(_ context.Context, _ string, origina
 			if hasFunctionCall {
 				choiceTemplate, _ = sjson.SetBytes(choiceTemplate, "finish_reason", "tool_calls")
 				choiceTemplate, _ = sjson.SetBytes(choiceTemplate, "native_finish_reason", "tool_calls")
+			} else if upstreamFinishReason != "" {
+				finishReason := strings.ToLower(upstreamFinishReason)
+				if isGeminiContentFilterFinishReason(upstreamFinishReason) || (isGeminiMalformedFinishReason(upstreamFinishReason) && !hasVisibleContent) {
+					finishReason = "content_filter"
+				} else if isGeminiMalformedFinishReason(upstreamFinishReason) && hasVisibleContent {
+					finishReason = "stop"
+				}
+				choiceTemplate, _ = sjson.SetBytes(choiceTemplate, "finish_reason", finishReason)
+				choiceTemplate, _ = sjson.SetBytes(choiceTemplate, "native_finish_reason", strings.ToLower(upstreamFinishReason))
 			}
 
 			// Append the constructed choice to the main choices array.
@@ -499,13 +514,15 @@ func ConvertGeminiResponseToOpenAINonStream(_ context.Context, _ string, origina
 	return template
 }
 
-func resolveGeminiOpenAIFinishReason(upstreamFinishReason string, sawToolCall bool) (finishReason, nativeFinishReason string) {
+func resolveGeminiOpenAIFinishReason(upstreamFinishReason string, sawToolCall, sawContent bool) (finishReason, nativeFinishReason string) {
 	switch {
 	case sawToolCall:
 		finishReason = "tool_calls"
 	case upstreamFinishReason == "MAX_TOKENS":
 		finishReason = "max_tokens"
 	case isGeminiContentFilterFinishReason(upstreamFinishReason):
+		finishReason = "content_filter"
+	case isGeminiMalformedFinishReason(upstreamFinishReason) && !sawContent:
 		finishReason = "content_filter"
 	default:
 		finishReason = "stop"
@@ -541,7 +558,16 @@ func applyGeminiOpenAIUsageMetadata(template []byte, usageResult gjson.Result) [
 
 func isGeminiContentFilterFinishReason(reason string) bool {
 	switch strings.ToUpper(strings.TrimSpace(reason)) {
-	case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY", "MALFORMED_RESPONSE", "MALFORMED_FUNCTION_CALL":
+	case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY":
+		return true
+	default:
+		return false
+	}
+}
+
+func isGeminiMalformedFinishReason(reason string) bool {
+	switch strings.ToUpper(strings.TrimSpace(reason)) {
+	case "MALFORMED_RESPONSE", "MALFORMED_FUNCTION_CALL":
 		return true
 	default:
 		return false

@@ -1683,6 +1683,41 @@ func TestConvertGeminiResponseToOpenAIResponses_NonNormalFinishReasonsMapToIncom
 	}
 }
 
+func TestConvertGeminiResponseToOpenAIResponses_MalformedFinishReasonsWithOutputMapToCompleted(t *testing.T) {
+	ctx := context.Background()
+	req := []byte(`{"model":"gemini-4-argon"}`)
+	for _, reason := range []string{"MALFORMED_RESPONSE", "MALFORMED_FUNCTION_CALL"} {
+		t.Run("stream/"+reason, func(t *testing.T) {
+			var param any
+			chunk := []byte(`data: {"candidates":[{"content":{"role":"model","parts":[{"text":"completed answer"}]},"finishReason":"` + reason + `"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"totalTokenCount":15},"modelVersion":"gemini-4-argon","responseId":"resp_1"}`)
+			var sawCompleted bool
+			for _, out := range ConvertGeminiResponseToOpenAIResponses(ctx, "gemini-4-argon", req, nil, chunk, &param) {
+				event, data := parseSSEEvent(t, out)
+				if event == "response.completed" {
+					sawCompleted = true
+					if got := data.Get("response.status").String(); got != "completed" {
+						t.Fatalf("response.status = %q, want completed", got)
+					}
+				}
+				if event == "response.incomplete" {
+					t.Fatalf("unexpected response.incomplete for finishReason %s after visible text: %s", reason, out)
+				}
+			}
+			if !sawCompleted {
+				t.Fatalf("expected response.completed event for finishReason %s after visible text", reason)
+			}
+		})
+
+		t.Run("nonstream/"+reason, func(t *testing.T) {
+			raw := []byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"completed answer"}]},"finishReason":"` + reason + `"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"totalTokenCount":15},"modelVersion":"gemini-4-argon","responseId":"resp_1"}`)
+			out := ConvertGeminiResponseToOpenAIResponsesNonStream(ctx, "gemini-4-argon", req, nil, raw, nil)
+			if got := gjson.GetBytes(out, "status").String(); got != "completed" {
+				t.Fatalf("non-stream status = %q, want completed; payload=%s", got, out)
+			}
+		})
+	}
+}
+
 func BenchmarkConvertGeminiResponseToOpenAIResponses_TextDelta(b *testing.B) {
 	request := []byte(`{"model":"gemini-2.5-flash","instructions":"` + strings.Repeat("x", 1024*1024) + `"}`)
 	delta := []byte(`data: {"candidates":[{"content":{"role":"model","parts":[{"text":"token "}]} }],"modelVersion":"gemini-2.5-flash","responseId":"resp_bench"}`)

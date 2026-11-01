@@ -92,12 +92,17 @@ func (usage geminiResponsesUsage) JSON() []byte {
 	return out
 }
 
-func geminiResponsesTerminalState(finishReason string) (eventType, status string, incompleteDetails []byte) {
+func geminiResponsesTerminalState(finishReason string, hasOutput bool) (eventType, status string, incompleteDetails []byte) {
 	switch strings.ToUpper(strings.TrimSpace(finishReason)) {
 	case "MAX_TOKENS":
 		return "response.incomplete", "incomplete", []byte(`{"reason":"max_output_tokens"}`)
-	case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY", "MALFORMED_RESPONSE", "MALFORMED_FUNCTION_CALL":
+	case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY":
 		return "response.incomplete", "incomplete", []byte(`{"reason":"content_filter"}`)
+	case "MALFORMED_RESPONSE", "MALFORMED_FUNCTION_CALL":
+		if !hasOutput {
+			return "response.incomplete", "incomplete", []byte(`{"reason":"content_filter"}`)
+		}
+		return "response.completed", "completed", nil
 	default:
 		return "response.completed", "completed", nil
 	}
@@ -1208,9 +1213,9 @@ func ConvertGeminiResponseToOpenAIResponses(_ context.Context, modelName string,
 				if isToolSearch {
 					itemStatus := "completed"
 					if fr := root.Get("candidates.0.finishReason").String(); fr != "" {
-						_, itemStatus, _ = geminiResponsesTerminalState(fr)
+						_, itemStatus, _ = geminiResponsesTerminalState(fr, true)
 					} else if st.FinishReason != "" {
-						_, itemStatus, _ = geminiResponsesTerminalState(st.FinishReason)
+						_, itemStatus, _ = geminiResponsesTerminalState(st.FinishReason, true)
 					}
 					itemID := openAIResponsesToolSearchCallItemID(st.FuncCallIDs[idx])
 					item := []byte(`{"type":"response.output_item.added","sequence_number":0,"output_index":0,"item":{}}`)
@@ -1351,7 +1356,8 @@ func ConvertGeminiResponseToOpenAIResponses(_ context.Context, modelName string,
 		if !done && !hasUsage {
 			return out
 		}
-		eventType, status, incompleteDetails := geminiResponsesTerminalState(st.FinishReason)
+		hasStreamOutput := st.MsgOpened || len(st.CompletedMessages) > 0 || len(st.WebSearchBufferedDeltas) > 0 || len(st.FuncArgsBuf) > 0
+		eventType, status, incompleteDetails := geminiResponsesTerminalState(st.FinishReason, hasStreamOutput)
 		messageStatus = status
 		if st.PendingReasoningSignature != "" {
 			emitTrailingDetachedReasoning(st.PendingReasoningSignature)
@@ -1603,11 +1609,6 @@ func ConvertGeminiResponseToOpenAIResponsesNonStream(_ context.Context, _ string
 
 	// Base response scaffold
 	resp := []byte(`{"id":"","object":"response","created_at":0,"status":"completed","background":false,"error":null,"incomplete_details":null}`)
-	_, status, incompleteDetails := geminiResponsesTerminalState(root.Get("candidates.0.finishReason").String())
-	resp, _ = sjson.SetBytes(resp, "status", status)
-	if incompleteDetails != nil {
-		resp, _ = sjson.SetRawBytes(resp, "incomplete_details", incompleteDetails)
-	}
 
 	// id: prefer provider responseId, otherwise synthesize
 	id := root.Get("responseId").String()
@@ -1902,7 +1903,8 @@ func ConvertGeminiResponseToOpenAIResponsesNonStream(_ context.Context, _ string
 				}
 				var itemJSON []byte
 				if identity.ToolSearch {
-					itemJSON = buildOpenAIResponsesToolSearchCallItem(openAIResponsesToolSearchCallItemID(callID), callID, status, argsStr)
+					_, toolSearchStatus, _ := geminiResponsesTerminalState(root.Get("candidates.0.finishReason").String(), true)
+					itemJSON = buildOpenAIResponsesToolSearchCallItem(openAIResponsesToolSearchCallItemID(callID), callID, toolSearchStatus, argsStr)
 				} else if isCustom {
 					inputStr := util.UnwrapResponsesCustomToolInput(argsStr)
 					if identity.ApplyPatch {
@@ -1989,7 +1991,12 @@ func ConvertGeminiResponseToOpenAIResponsesNonStream(_ context.Context, _ string
 	}
 	flushReasoningOutput()
 	flushMessageOutput()
-
+	hasNonStreamOutput := len(messageOutputs) > 0 || len(functionOutputs) > 0
+	_, status, incompleteDetails := geminiResponsesTerminalState(root.Get("candidates.0.finishReason").String(), hasNonStreamOutput)
+	resp, _ = sjson.SetBytes(resp, "status", status)
+	if incompleteDetails != nil {
+		resp, _ = sjson.SetRawBytes(resp, "incomplete_details", incompleteDetails)
+	}
 	// Web search handling from groundingMetadata
 	groundingMetadata := ExtractGroundingMetadata(root)
 	hasGrounding := HasValidWebGrounding(groundingMetadata)

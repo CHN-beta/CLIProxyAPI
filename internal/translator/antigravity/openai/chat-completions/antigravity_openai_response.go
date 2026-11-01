@@ -27,6 +27,7 @@ type convertCliResponseToOpenAIChatParams struct {
 	FunctionIndex        int
 	SawResponse          bool   // Tracks whether any upstream response chunk was seen
 	SawToolCall          bool   // Tracks if any tool call was seen in the entire stream
+	SawContent           bool   // Tracks if any visible text or image content was seen in the stream
 	SawFinishReason      bool   // Tracks whether finish_reason has been emitted
 	UpstreamFinishReason string // Caches the upstream finish reason for final chunk
 	ModelVersion         string
@@ -169,6 +170,9 @@ func ConvertAntigravityResponseToOpenAI(_ context.Context, _ string, originalReq
 				if partResult.Get("thought").Bool() {
 					template, _ = sjson.SetBytes(template, "choices.0.delta.reasoning_content", textContent)
 				} else {
+					if textContent != "" {
+						params.SawContent = true
+					}
 					template, _ = sjson.SetBytes(template, "choices.0.delta.content", textContent)
 				}
 				template, _ = sjson.SetBytes(template, "choices.0.delta.role", "assistant")
@@ -201,6 +205,7 @@ func ConvertAntigravityResponseToOpenAI(_ context.Context, _ string, originalReq
 				if data == "" {
 					continue
 				}
+				params.SawContent = true
 				mimeType := inlineDataResult.Get("mimeType").String()
 				if mimeType == "" {
 					mimeType = inlineDataResult.Get("mime_type").String()
@@ -277,6 +282,8 @@ func resolveOpenAIFinishReason(params *convertCliResponseToOpenAIChatParams) (fi
 		finishReason = "max_tokens"
 	case isAntigravityContentFilterFinishReason(params.UpstreamFinishReason):
 		finishReason = "content_filter"
+	case isAntigravityMalformedFinishReason(params.UpstreamFinishReason) && !params.SawContent:
+		finishReason = "content_filter"
 	default:
 		finishReason = "stop"
 	}
@@ -289,7 +296,16 @@ func resolveOpenAIFinishReason(params *convertCliResponseToOpenAIChatParams) (fi
 
 func isAntigravityContentFilterFinishReason(reason string) bool {
 	switch strings.ToUpper(strings.TrimSpace(reason)) {
-	case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY", "MALFORMED_RESPONSE", "MALFORMED_FUNCTION_CALL":
+	case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAntigravityMalformedFinishReason(reason string) bool {
+	switch strings.ToUpper(strings.TrimSpace(reason)) {
+	case "MALFORMED_RESPONSE", "MALFORMED_FUNCTION_CALL":
 		return true
 	default:
 		return false

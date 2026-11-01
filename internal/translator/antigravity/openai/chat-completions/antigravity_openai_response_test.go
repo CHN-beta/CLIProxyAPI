@@ -373,6 +373,34 @@ func TestConvertAntigravityResponseToOpenAI_NonStopFinishReasonsMapToContentFilt
 	}
 }
 
+func TestConvertAntigravityResponseToOpenAI_MalformedFinishReasonsWithVisibleContentMapToStop(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		upstreamReason string
+		wantNative     string
+	}{
+		{upstreamReason: "MALFORMED_RESPONSE", wantNative: "malformed_response"},
+		{upstreamReason: "MALFORMED_FUNCTION_CALL", wantNative: "malformed_function_call"},
+	} {
+		t.Run(tc.upstreamReason, func(t *testing.T) {
+			var param any
+			chunk1 := []byte(`{"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"completed answer"}]}}]}}`)
+			chunk2 := []byte(`{"response":{"candidates":[{"content":{"role":"model","parts":[]},"finishReason":"` + tc.upstreamReason + `"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"totalTokenCount":15}}}`)
+			out1 := ConvertAntigravityResponseToOpenAI(ctx, "gemini-4-argon", nil, nil, chunk1, &param)
+			out2 := ConvertAntigravityResponseToOpenAI(ctx, "gemini-4-argon", nil, nil, chunk2, &param)
+			if len(out1) != 1 || len(out2) != 1 {
+				t.Fatalf("expected 1 chunk per call, got %d and %d", len(out1), len(out2))
+			}
+			if got := gjson.GetBytes(out2[0], "choices.0.finish_reason").String(); got != "stop" {
+				t.Fatalf("finish_reason = %q, want stop; payload=%s", got, out2[0])
+			}
+			if got := gjson.GetBytes(out2[0], "choices.0.native_finish_reason").String(); got != tc.wantNative {
+				t.Fatalf("native_finish_reason = %q, want %q; payload=%s", got, tc.wantNative, out2[0])
+			}
+		})
+	}
+}
+
 func TestConvertAntigravityResponseToOpenAI_OmitToolCallsWhenAbsentInStreamingDelta(t *testing.T) {
 	ctx := context.Background()
 	var param any
