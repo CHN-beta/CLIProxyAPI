@@ -309,7 +309,9 @@ func TestInstallArchiveRejectsUnsafeArchives(t *testing.T) {
 }
 
 func TestInstallUsesLatestReleaseVersion(t *testing.T) {
-	t.Parallel()
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("github_token", "")
+	t.Setenv("GITSTORE_GIT_TOKEN", "")
 
 	root := t.TempDir()
 	archiveData := makeZip(t, map[string]string{"sample-provider.dylib": "library-data"})
@@ -434,6 +436,9 @@ func TestDownloadAssetUsesAPIURLWhenResolvedAuthMatchesArtifact(t *testing.T) {
 
 func TestDownloadAssetUsesBrowserDownloadURLWithUnrelatedAuth(t *testing.T) {
 	t.Setenv("PLUGIN_STORE_TOKEN", "secret-token")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("github_token", "")
+	t.Setenv("GITSTORE_GIT_TOKEN", "")
 	browserURL := "https://downloads.example/sample-provider.zip"
 	client := Client{
 		HTTPClient: mapHTTPDoer{
