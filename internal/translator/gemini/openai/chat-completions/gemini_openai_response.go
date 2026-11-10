@@ -416,7 +416,6 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 			upstreamFinishReason := p.UpstreamFinishReason[candidateIndex]
 			sawToolCall := p.SawToolCall[candidateIndex]
 			sawContent := p.SawContent[candidateIndex]
-			usageExists := ojson.GetBytesNoCopy(rawJSON, "usageMetadata").Exists()
 			isFinalChunk := upstreamFinishReason != "" && usageExists && p.ActiveToolCall[candidateIndex] == nil && !p.HasIncompleteToolCall[candidateIndex]
 
 			if isFinalChunk {
