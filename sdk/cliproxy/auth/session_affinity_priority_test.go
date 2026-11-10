@@ -1411,3 +1411,62 @@ func TestManagerSessionAffinityRebindOnNeverSingleAuthDisabledOrModelRemovedRetu
 		t.Fatalf("Execute model-removed bound auth error = %v, want session_auth_unavailable", errExec)
 	}
 }
+
+func TestSessionAffinityPriorityPreemptionAcrossModesAndPaths(t *testing.T) {
+	for _, rebindOn := range []string{SessionAffinityRebindOnAny, SessionAffinityRebindOnQuota, SessionAffinityRebindOnNever} {
+		t.Run(rebindOn, func(t *testing.T) {
+			ctx := context.Background()
+			selector := NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{
+				Fallback: &RoundRobinSelector{},
+				TTL:      time.Hour,
+				RebindOn: rebindOn,
+			})
+			defer selector.Stop()
+
+			highDown := &Auth{ID: "high", Status: StatusError, Unavailable: true, NextRetryAfter: time.Now().Add(time.Minute), Attributes: map[string]string{"priority": "1"}}
+			highUp := &Auth{ID: "high", Status: StatusActive, Attributes: map[string]string{"priority": "1"}}
+			low := &Auth{ID: "low", Status: StatusActive, Attributes: map[string]string{"priority": "0"}}
+
+			// 1. Primary session key path: cold bind to low while high is down, then preempt to high when high recovers.
+			primaryOpts := cliproxyexecutor.Options{Headers: http.Header{"Session-Id": []string{"primary-sess"}}}
+			if got, errPick := selector.Pick(ctx, "openai", "gpt-5", primaryOpts, []*Auth{highDown, low}); errPick != nil || got == nil || got.ID != "low" {
+				t.Fatalf("primary cold pick = %v (err=%v), want low", got, errPick)
+			}
+			if got, errPick := selector.Pick(ctx, "openai", "gpt-5", primaryOpts, []*Auth{highUp, low}); errPick != nil || got == nil || got.ID != "high" {
+				t.Fatalf("primary preempted pick = %v (err=%v), want high", got, errPick)
+			}
+
+			// 2. Fallback key path: cold bind conversation to low while high is down, then preempt to high with prompt_cache_key + conversation.
+			fbInit := cliproxyexecutor.Options{OriginalRequest: []byte(`{"conversation":"conv-preempt-1"}`)}
+			if got, errPick := selector.Pick(ctx, "openai", "gpt-5", fbInit, []*Auth{highDown, low}); errPick != nil || got == nil || got.ID != "low" {
+				t.Fatalf("fallback cold pick = %v (err=%v), want low", got, errPick)
+			}
+			fbLookup := cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"pck-preempt-1","conversation":"conv-preempt-1"}`)}
+			if got, errPick := selector.Pick(ctx, "openai", "gpt-5", fbLookup, []*Auth{highUp, low}); errPick != nil || got == nil || got.ID != "high" {
+				t.Fatalf("fallback preempted pick = %v (err=%v), want high", got, errPick)
+			}
+			// Subsequent lookup on primary prompt_cache_key must now be bound to high (even if high is still up).
+			if bound, ok := selector.cache.Get("openai::pck:pck-preempt-1::gpt-5"); !ok || bound != "high" {
+				t.Fatalf("fallback preempted binding = %q (ok=%v), want high", bound, ok)
+			}
+
+			// 3. LCP path: cold bind to low while high is down, then preempt to high on turn 2 when high recovers.
+			lcpTurn1 := cliproxyexecutor.Options{
+				SourceFormat:    sdktranslator.FormatOpenAI,
+				OriginalRequest: []byte(`{"messages":[{"role":"user","content":"hello lcp preempt"}]}`),
+				Metadata:        map[string]any{cliproxyexecutor.CallerScopeMetadataKey: "caller-preempt"},
+			}
+			if got, errPick := selector.Pick(ctx, "openai", "gpt-5", lcpTurn1, []*Auth{highDown, low}); errPick != nil || got == nil || got.ID != "low" {
+				t.Fatalf("LCP cold pick = %v (err=%v), want low", got, errPick)
+			}
+			lcpTurn2 := cliproxyexecutor.Options{
+				SourceFormat:    sdktranslator.FormatOpenAI,
+				OriginalRequest: []byte(`{"messages":[{"role":"user","content":"hello lcp preempt"},{"role":"assistant","content":"ack"},{"role":"user","content":"turn 2"}]}`),
+				Metadata:        map[string]any{cliproxyexecutor.CallerScopeMetadataKey: "caller-preempt"},
+			}
+			if got, errPick := selector.Pick(ctx, "openai", "gpt-5", lcpTurn2, []*Auth{highUp, low}); errPick != nil || got == nil || got.ID != "high" {
+				t.Fatalf("LCP preempted pick = %v (err=%v), want high", got, errPick)
+			}
+		})
+	}
+}
