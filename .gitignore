@@ -1,6 +1,7 @@
 # Binaries
 cli-proxy-api
 *.exe
+/server
 
 # Configuration
 config.yaml
