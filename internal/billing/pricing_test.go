@@ -27,6 +27,24 @@ func TestCostUSDRates(t *testing.T) {
 			want:   0.20,
 		},
 		{
+			name:   "carbon prefix input",
+			model:  "gemini-4-carbon",
+			tokens: TokenCounts{Input: million, UncachedInput: million},
+			want:   0.20,
+		},
+		{
+			name:   "carbon high thinking suffix",
+			model:  "gemini-4-carbon-high",
+			tokens: TokenCounts{Input: million, UncachedInput: million, Output: million},
+			want:   1.20,
+		},
+		{
+			name:   "carbon alias cache read",
+			alias:  "gemini-4-carbon",
+			tokens: TokenCounts{Input: million, CacheRead: million},
+			want:   0.01,
+		},
+		{
 			name:   "flash input and output",
 			model:  "gemini-3.5-flash",
 			tokens: TokenCounts{Input: million, UncachedInput: million, Output: million},
