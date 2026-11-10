@@ -155,6 +155,24 @@ func (h *Handler) currentConfig() *config.Config {
 	return cfg
 }
 
+// clientAPIKeyAllowsModel reports whether the authenticated client key may use
+// model on this realtime endpoint.
+func (h *Handler) clientAPIKeyAllowsModel(ctx context.Context, c *gin.Context, model string) bool {
+	model = strings.TrimSpace(model)
+	if h == nil || c == nil || model == "" {
+		return true
+	}
+	apiKey := strings.TrimSpace(c.GetString("userApiKey"))
+	if apiKey == "" && ctx != nil {
+		apiKey = strings.TrimSpace(helps.APIKeyFromContext(ctx))
+	}
+	cfg := h.currentConfig()
+	if cfg == nil {
+		return true
+	}
+	return handlers.ClientAPIKeyAllowsModel(cfg.APIKeys, apiKey, model)
+}
+
 func (h *Handler) currentMediaRelay() (mediaRelayFactory, error) {
 	if h == nil {
 		return nil, nil
@@ -199,11 +217,16 @@ func (h *Handler) Handle(c *gin.Context) {
 	if errPayload == nil {
 		upstreamBody, upstreamContentType, model, errPayload = applyClientSecretCallSession(upstreamBody, upstreamContentType, model, clientSecretSession(c))
 	}
+	requestedModel := model
 	if errPayload == nil {
 		upstreamBody, model, errPayload = rewriteCallRequestModel(upstreamBody, upstreamContentType, model)
 	}
 	if errPayload != nil {
 		writeLiveError(c, http.StatusBadRequest, errPayload.Error())
+		return
+	}
+	if !h.clientAPIKeyAllowsModel(c.Request.Context(), c, requestedModel) {
+		writeLiveError(c, http.StatusForbidden, "model "+requestedModel+" is not allowed for this API key")
 		return
 	}
 	runtimeConfig, mediaRelay, mediaRelayErr := h.currentRuntime()

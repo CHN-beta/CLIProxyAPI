@@ -671,6 +671,121 @@ func (h *BaseAPIHandler) applyResponseInterceptors(ctx context.Context, requestI
 	return body, responseHeaders
 }
 
+// filterModelListBody removes catalog entries the authenticated client API key
+// may not use. Non-model envelopes and unrestricted keys pass through untouched.
+func (h *BaseAPIHandler) filterModelListBody(ctx context.Context, c *gin.Context, body []byte) []byte {
+	if len(body) == 0 || !h.clientAPIKeyRestrictsModels(ctx, c) {
+		return body
+	}
+	var envelope map[string]json.RawMessage
+	if errUnmarshal := json.Unmarshal(body, &envelope); errUnmarshal != nil {
+		var items []json.RawMessage
+		if errItems := json.Unmarshal(body, &items); errItems != nil {
+			return body
+		}
+		return marshalModelListEntries(h.filterModelListEntries(ctx, c, items), body)
+	}
+	if envelope == nil {
+		return body
+	}
+	changed := false
+	for _, key := range []string{"data", "models"} {
+		raw, ok := envelope[key]
+		if !ok {
+			continue
+		}
+		var items []json.RawMessage
+		if errItems := json.Unmarshal(raw, &items); errItems != nil {
+			continue
+		}
+		filtered := h.filterModelListEntries(ctx, c, items)
+		envelope[key] = marshalModelListEntries(filtered, raw)
+		if key == "data" {
+			updateModelListCursors(envelope, filtered)
+		}
+		changed = true
+	}
+	if !changed {
+		return body
+	}
+	encoded, errMarshal := json.Marshal(envelope)
+	if errMarshal != nil {
+		return body
+	}
+	return encoded
+}
+
+func (h *BaseAPIHandler) filterModelListEntries(ctx context.Context, c *gin.Context, items []json.RawMessage) []json.RawMessage {
+	filtered := make([]json.RawMessage, 0, len(items))
+	for _, item := range items {
+		modelID := modelListEntryID(item)
+		if modelID == "" || h.clientAPIKeyAllowsModel(ctx, c, modelID) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func marshalModelListEntries(items []json.RawMessage, fallback []byte) []byte {
+	encoded, errMarshal := json.Marshal(items)
+	if errMarshal != nil {
+		return fallback
+	}
+	return encoded
+}
+
+// updateModelListCursors keeps Anthropic-style first_id/last_id fields aligned
+// with the filtered catalog so pagination cursors never name a hidden model.
+func updateModelListCursors(envelope map[string]json.RawMessage, filtered []json.RawMessage) {
+	firstID, lastID := "", ""
+	if len(filtered) > 0 {
+		firstID = modelListEntryID(filtered[0])
+		lastID = modelListEntryID(filtered[len(filtered)-1])
+	}
+	setModelListStringField(envelope, "first_id", firstID)
+	setModelListStringField(envelope, "last_id", lastID)
+}
+
+func setModelListStringField(envelope map[string]json.RawMessage, key, value string) {
+	raw, ok := envelope[key]
+	if !ok {
+		return
+	}
+	var current string
+	if errUnmarshal := json.Unmarshal(raw, &current); errUnmarshal != nil {
+		return
+	}
+	encoded, errMarshal := json.Marshal(value)
+	if errMarshal != nil {
+		return
+	}
+	envelope[key] = encoded
+}
+
+// modelListEntryID extracts the client-visible identifier from a catalog entry.
+// It prefers the fields model-detail lookup accepts and falls back to Gemini's
+// "name" form for entries that carry no id or slug.
+func modelListEntryID(raw json.RawMessage) string {
+	var fields map[string]json.RawMessage
+	if errUnmarshal := json.Unmarshal(raw, &fields); errUnmarshal != nil {
+		return ""
+	}
+	for _, key := range []string{"id", "slug", "model", "name"} {
+		value, ok := fields[key]
+		if !ok {
+			continue
+		}
+		var modelID string
+		if errUnmarshal := json.Unmarshal(value, &modelID); errUnmarshal != nil {
+			continue
+		}
+		if modelID = strings.TrimSpace(modelID); modelID != "" {
+			return modelID
+		}
+	}
+	return ""
+}
+
 // ModelDetailIDContextKey requests selection from the final, plugin-filtered catalog.
 const ModelDetailIDContextKey = "cliproxy.model_detail_id"
 
@@ -697,16 +812,20 @@ func (h *BaseAPIHandler) WriteModelListResponse(c *gin.Context, sourceFormat str
 		"Content-Type": []string{"application/json; charset=utf-8"},
 	}
 
+	apiCtx := context.Background()
+	if c.Request != nil {
+		if reqCtx := c.Request.Context(); reqCtx != nil {
+			apiCtx = reqCtx
+		}
+	}
+
 	var lifecycle *requestLifecycleTracker
 	host := h.interceptorHost()
 	if host != nil {
-		ctx := context.Background()
+		ctx := apiCtx
 		var reqHeaders http.Header
 		if c.Request != nil {
 			reqHeaders = cloneHeader(c.Request.Header)
-			if reqCtx := c.Request.Context(); reqCtx != nil {
-				ctx = reqCtx
-			}
 		}
 		lifecycle = h.newRequestLifecycleTracker(ctx, sourceFormat, "", "", false, nil, "")
 		resp := interceptResponse(ctx, host, pluginapi.ResponseInterceptRequest{
@@ -732,6 +851,8 @@ func (h *BaseAPIHandler) WriteModelListResponse(c *gin.Context, sourceFormat str
 			}
 		}
 	}
+
+	body = h.filterModelListBody(apiCtx, c, body)
 
 	if modelID, detail := c.Get(ModelDetailIDContextKey); detail {
 		c.Writer.Header().Del("Content-Length")

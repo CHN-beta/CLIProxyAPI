@@ -60,10 +60,16 @@ The proxy includes one built-in access provider:
 - `config-api-key`: Validates client API key entries declared under `access.api-keys`.
   - Credential sources: `Authorization: Bearer`, `X-Goog-Api-Key`, `X-Api-Key`, `?key=`, `?auth_token=`
   - Metadata: `Result.Metadata["source"]` is set to the matched source label.
-  - Each entry has a required `key`, an optional `name`, and an optional monthly
-    USD spending cap `quota`. Omitting `quota` leaves the key unlimited; when the
-    month's billed spend reaches the cap the provider returns HTTP 429 with code
+  - Each entry has a required `key`, an optional `name`, an optional monthly
+    USD spending cap `quota`, and optional `models` / `excluded-models` pattern
+    lists. Omitting `quota` leaves the key unlimited; when the month's billed
+    spend reaches the cap the provider returns HTTP 429 with code
     `insufficient_quota`.
+  - `models` is a case-insensitive `*` wildcard allowlist: when non-empty, the
+    key may only list and call matching client-visible models. `excluded-models`
+    is applied afterwards and always wins. Omitting both allows every model.
+    Model patterns match the client-visible ID, with `models/` prefixes, Claude
+    cloaking, and thinking suffixes such as `model(high)` normalized away.
 
 In the CLI server and `sdk/cliproxy`, this provider is registered automatically based on the loaded configuration.
 
@@ -75,6 +81,8 @@ access:
     - key: sk-prod-456
       name: production
       quota: 100.00
+      models: ["gemini-2.5-*", "gpt-5*"]
+      excluded-models: ["*-preview"]
 ```
 
 ## Loading Providers from External Go Modules

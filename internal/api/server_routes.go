@@ -380,6 +380,15 @@ func (s *Server) codexAlphaSearch(c *gin.Context) {
 		Model string `json:"model"`
 	}
 	_ = json.Unmarshal(body, &routing)
+	if model := strings.TrimSpace(routing.Model); model != "" && s.handlers != nil && !s.handlers.ClientAPIKeyAllowsModel(c.Request.Context(), c, model) {
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{
+			"message": "model " + model + " is not allowed for this API key",
+			"type":    "invalid_request_error",
+			"code":    "model_not_allowed",
+			"param":   "model",
+		}})
+		return
+	}
 	upstreamRequestBody := sanitizeCodexAlphaSearchBody(body)
 
 	selectionHeaders := c.Request.Header.Clone()
@@ -1011,6 +1020,9 @@ func (s *Server) handleHomeGeminiModel(c *gin.Context) {
 	action = strings.TrimSpace(action)
 	for _, entry := range entries {
 		if homeGeminiModelMatches(entry, action) {
+			if s.handlers != nil && !s.handlers.ClientAPIKeyAllowsModel(c.Request.Context(), c, entry.id) {
+				break
+			}
 			c.JSON(http.StatusOK, formatHomeGeminiModel(entry))
 			return
 		}

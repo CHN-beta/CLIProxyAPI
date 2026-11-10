@@ -11,10 +11,18 @@ type AccessConfig struct {
 // Quota is a monthly spending cap in US dollars. A nil Quota means the key is
 // unlimited; a non-nil Quota (including zero or negative values) is enforced
 // against the current month's billed usage.
+//
+// Models is an optional allowlist of client-visible model patterns. When it is
+// non-empty, the key may only use models matching at least one pattern.
+// ExcludedModels is an optional denylist applied after Models; a matching model
+// is always rejected. Patterns use case-insensitive '*' wildcards. When both
+// lists are empty, the key may use every model.
 type APIKeyEntry struct {
-	Key   string   `yaml:"key" json:"key"`
-	Name  string   `yaml:"name,omitempty" json:"name,omitempty"`
-	Quota *float64 `yaml:"quota,omitempty" json:"quota,omitempty"`
+	Key            string   `yaml:"key" json:"key"`
+	Name           string   `yaml:"name,omitempty" json:"name,omitempty"`
+	Quota          *float64 `yaml:"quota,omitempty" json:"quota,omitempty"`
+	Models         []string `yaml:"models,omitempty" json:"models,omitempty"`
+	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
 }
 
 // AccessProvider describes a request authentication provider entry.

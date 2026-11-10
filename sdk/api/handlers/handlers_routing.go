@@ -1,18 +1,23 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/MoeForge/moego/ojson"
+	"github.com/gin-gonic/gin"
 
+	claudemodels "github.com/router-for-me/CLIProxyAPI/v8/internal/client/claude/models"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	. "github.com/router-for-me/CLIProxyAPI/v8/internal/constant"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/thinking"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 	"golang.org/x/net/context"
 )
@@ -286,6 +291,249 @@ func routeModelBaseName(model string) string {
 		return strings.TrimSpace(model[idx+1:])
 	}
 	return model
+}
+
+// ginContextFromHandlerContext recovers the Gin context carried by HTTP
+// execution contexts, which lets the model policy read userApiKey set by the
+// access middleware or Home dispatch.
+func ginContextFromHandlerContext(ctx context.Context) *gin.Context {
+	if ctx == nil {
+		return nil
+	}
+	if ginCtx, ok := ctx.(*gin.Context); ok && ginCtx != nil {
+		return ginCtx
+	}
+	ginCtx, _ := ctx.Value("gin").(*gin.Context)
+	return ginCtx
+}
+
+// ClientAPIKeyAllowsModel reports whether apiKey may use modelID according to
+// the configured access.api-keys model policy. A key with no matching entry,
+// or an entry with neither Models nor ExcludedModels, is unrestricted.
+func ClientAPIKeyAllowsModel(entries []config.APIKeyEntry, apiKey, modelID string) bool {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return true
+	}
+	for i := range entries {
+		if strings.TrimSpace(entries[i].Key) == apiKey {
+			return apiKeyEntryAllowsModel(&entries[i], modelID)
+		}
+	}
+	return true
+}
+
+// clientAPIKeyEntryValue returns the access.api-keys entry matching the
+// authenticated client key, or nil when the request is not key-scoped.
+func (h *BaseAPIHandler) clientAPIKeyEntryValue(ctx context.Context, ginCtx *gin.Context) *config.APIKeyEntry {
+	if h == nil {
+		return nil
+	}
+	cfg := h.CurrentConfig()
+	if cfg == nil || len(cfg.APIKeys) == 0 {
+		return nil
+	}
+	key := ""
+	if ginCtx != nil {
+		key = strings.TrimSpace(ginCtx.GetString("userApiKey"))
+	}
+	if key == "" {
+		key = strings.TrimSpace(coreusage.APIKeyFromContext(ctx))
+	}
+	if key == "" {
+		return nil
+	}
+	for i := range cfg.APIKeys {
+		if strings.TrimSpace(cfg.APIKeys[i].Key) == key {
+			return &cfg.APIKeys[i]
+		}
+	}
+	return nil
+}
+
+// clientAPIKeyRestrictsModels reports whether the authenticated client key has
+// a non-empty model allowlist or denylist and therefore needs list filtering.
+func (h *BaseAPIHandler) clientAPIKeyRestrictsModels(ctx context.Context, ginCtx *gin.Context) bool {
+	entry := h.clientAPIKeyEntryValue(ctx, ginCtx)
+	return entry != nil && (len(entry.Models) > 0 || len(entry.ExcludedModels) > 0)
+}
+
+// clientAPIKeyAllowsModel reports whether the authenticated client key may use
+// modelID. Requests without a configured client key, or keys without a model
+// policy, are allowed.
+func (h *BaseAPIHandler) clientAPIKeyAllowsModel(ctx context.Context, ginCtx *gin.Context, modelID string) bool {
+	entry := h.clientAPIKeyEntryValue(ctx, ginCtx)
+	if entry == nil {
+		return true
+	}
+	return apiKeyEntryAllowsModel(entry, modelID)
+}
+
+// ClientAPIKeyAllowsModel reports whether the authenticated client key may use
+// modelID. It is the cross-package form of clientAPIKeyAllowsModel.
+func (h *BaseAPIHandler) ClientAPIKeyAllowsModel(ctx context.Context, ginCtx *gin.Context, modelID string) bool {
+	return h.clientAPIKeyAllowsModel(ctx, ginCtx, modelID)
+}
+
+func apiKeyEntryAllowsModel(entry *config.APIKeyEntry, modelID string) bool {
+	if entry == nil {
+		return true
+	}
+	if len(entry.Models) == 0 && len(entry.ExcludedModels) == 0 {
+		return true
+	}
+	candidates := clientModelIDCandidates(modelID)
+	if len(candidates) == 0 {
+		return false
+	}
+	if len(entry.Models) > 0 {
+		allowed := false
+		for _, candidate := range candidates {
+			if modelPatternsMatch(entry.Models, candidate) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+	for _, candidate := range candidates {
+		if modelPatternsMatch(entry.ExcludedModels, candidate) {
+			return false
+		}
+	}
+	return true
+}
+
+// clientModelIDCandidates expands a client-visible model ID into the forms a
+// configured pattern may legitimately target: the raw ID, the ID without a
+// Gemini "models/" prefix, the decoded Claude ID, and the same IDs without a
+// thinking-level suffix.
+func clientModelIDCandidates(modelID string) []string {
+	raw := strings.TrimSpace(modelID)
+	if raw == "" {
+		return nil
+	}
+	out := make([]string, 0, 6)
+	seen := make(map[string]struct{}, 6)
+	appendCandidate := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, exists := seen[value]; exists {
+			return
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+
+	appendCandidate(raw)
+	base := raw
+	if strings.HasPrefix(strings.ToLower(base), "models/") {
+		base = strings.TrimSpace(base[len("models/"):])
+	}
+	appendCandidate(base)
+	resolved := claudemodels.ResolveClaudeModelIDPrefix(base)
+	appendCandidate(resolved)
+
+	for _, candidate := range []string{base, resolved} {
+		appendCandidate(thinking.ParseSuffix(candidate).ModelName)
+		if colon := strings.LastIndex(candidate, ":"); colon > 0 {
+			if recognizedThinkingLevelToken(candidate[colon+1:]) {
+				appendCandidate(candidate[:colon])
+			}
+		}
+	}
+	return out
+}
+
+func recognizedThinkingLevelToken(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	if _, ok := thinking.ParseLevelSuffix(value); ok {
+		return true
+	}
+	if _, ok := thinking.ParseSpecialSuffix(value); ok {
+		return true
+	}
+	_, ok := thinking.ParseNumericSuffix(value)
+	return ok
+}
+
+func modelPatternsMatch(patterns []string, model string) bool {
+	for _, pattern := range patterns {
+		if modelPatternMatches(pattern, model) {
+			return true
+		}
+	}
+	return false
+}
+
+// modelPatternMatches performs case-insensitive wildcard matching where '*'
+// matches any substring.
+func modelPatternMatches(pattern, model string) bool {
+	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	model = strings.ToLower(strings.TrimSpace(model))
+	if pattern == "" || model == "" {
+		return false
+	}
+	if pattern == "*" {
+		return true
+	}
+	pi, mi := 0, 0
+	starIndex, starMatch := -1, 0
+	for mi < len(model) {
+		switch {
+		case pi < len(pattern) && pattern[pi] == model[mi]:
+			pi++
+			mi++
+		case pi < len(pattern) && pattern[pi] == '*':
+			starIndex = pi
+			starMatch = mi
+			pi++
+		case starIndex != -1:
+			pi = starIndex + 1
+			starMatch++
+			mi = starMatch
+		default:
+			return false
+		}
+	}
+	for pi < len(pattern) && pattern[pi] == '*' {
+		pi++
+	}
+	return pi == len(pattern)
+}
+
+// modelNotAllowedForAPIKeyError builds the downstream error returned when a
+// client API key's model policy rejects an inference request.
+func modelNotAllowedForAPIKeyError(model string) *interfaces.ErrorMessage {
+	message := "model is not allowed for this API key"
+	if trimmed := strings.TrimSpace(model); trimmed != "" {
+		message = fmt.Sprintf("model %s is not allowed for this API key", trimmed)
+	}
+	body, errMarshal := json.Marshal(map[string]any{
+		"error": map[string]any{
+			"message": message,
+			"type":    "invalid_request_error",
+			"code":    "model_not_allowed",
+			"param":   "model",
+		},
+	})
+	if errMarshal != nil {
+		return &interfaces.ErrorMessage{
+			StatusCode: http.StatusForbidden,
+			Error:      errors.New(message),
+		}
+	}
+	return &interfaces.ErrorMessage{
+		StatusCode: http.StatusForbidden,
+		Error:      errors.New(string(body)),
+	}
 }
 
 func cloneBytes(src []byte) []byte {

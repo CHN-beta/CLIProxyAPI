@@ -113,6 +113,19 @@ func (h *GeminiAPIHandler) GeminiGetHandler(c *gin.Context) {
 		if name, ok := targetModel["name"].(string); ok && name != "" && !strings.HasPrefix(name, "models/") {
 			targetModel["name"] = "models/" + name
 		}
+		modelID := action
+		if name, ok := targetModel["name"].(string); ok && name != "" {
+			modelID = name
+		}
+		if !h.ClientAPIKeyAllowsModel(c.Request.Context(), c, modelID) {
+			c.JSON(http.StatusNotFound, handlers.ErrorResponse{
+				Error: handlers.ErrorDetail{
+					Message: "Not Found",
+					Type:    "not_found",
+				},
+			})
+			return
+		}
 		c.JSON(http.StatusOK, targetModel)
 		return
 	}

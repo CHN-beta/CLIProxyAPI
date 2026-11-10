@@ -60,9 +60,13 @@ default:
 - `config-api-key`：校验 `access.api-keys` 中声明的客户端 API Key 条目。
   - 凭证来源：`Authorization: Bearer`、`X-Goog-Api-Key`、`X-Api-Key`、`?key=`、`?auth_token=`
   - 元数据：`Result.Metadata["source"]` 会写入匹配到的来源标识
-  - 每个条目包含必填的 `key`、可选的 `name`，以及可选的月度美元额度 `quota`。
-    省略 `quota` 表示不限额；当月已计费金额达到额度后，该 provider 返回 HTTP 429，
-    错误码为 `insufficient_quota`。
+  - 每个条目包含必填的 `key`、可选的 `name`、可选的月度美元额度 `quota`，以及可选的
+    `models` / `excluded-models` 模型模式列表。省略 `quota` 表示不限额；当月已计费金额
+    达到额度后，该 provider 返回 HTTP 429，错误码为 `insufficient_quota`。
+  - `models` 是大小写不敏感的 `*` 通配白名单：非空时，该 Key 只能列出并调用匹配的
+    客户端可见模型。`excluded-models` 在黑名单阶段随后生效且始终优先。两者都省略时
+    允许全部模型。匹配会先归一化客户端可见 ID，包括去除 `models/` 前缀、还原 Claude
+    混淆 ID，以及剥离 `model(high)` 等思考后缀。
 
 在 CLI 服务端与 `sdk/cliproxy` 中，该 provider 会根据加载到的配置自动注册。
 
@@ -74,6 +78,8 @@ access:
     - key: sk-prod-456
       name: production
       quota: 100.00
+      models: ["gemini-2.5-*", "gpt-5*"]
+      excluded-models: ["*-preview"]
 ```
 
 ## 引入外部 Go 模块提供者

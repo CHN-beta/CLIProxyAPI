@@ -36,7 +36,7 @@ the corresponding group value. Legacy field names are rejected by v8 writes.
 
 | Example path | Value or purpose |
 | --- | --- |
-| `/config/access/api-keys` | Client authentication key entries, for example `[{"key":"client-key","name":"team-a","quota":25}]`. GET also returns the read-only `used`, `current-month`, and `key-hash` fields. |
+| `/config/access/api-keys` | Client authentication key entries, for example `[{"key":"client-key","name":"team-a","quota":25,"models":["gemini-2.5-*"],"excluded-models":["*-preview"]}]`. `models` is an allowlist of case-insensitive glob patterns; `excluded-models` is applied afterwards. Omitting both allows every model. GET also returns the read-only `used`, `current-month`, and `key-hash` fields. |
 | `/config/api-keys` | All upstream provider groups. |
 | `/config/api-keys/codex` | Codex upstream groups. |
 | `/config/client/codex/optimize-multi-agent-v2` | Boolean, default `false`; applies to Codex clients across OAuth and API-key routes. |

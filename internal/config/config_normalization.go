@@ -523,6 +523,19 @@ func (cfg *Config) SanitizeInteractionsKeys() {
 	cfg.InteractionsKey = sanitizeGeminiKeyEntries(cfg.InteractionsKey)
 }
 
+// NormalizeAPIKeyModels trims, lowercases, and deduplicates the per-key model
+// allowlist and denylist patterns under access.api-keys. Keys themselves are
+// left untouched; the access provider and Management API already trim those.
+func (cfg *Config) NormalizeAPIKeyModels() {
+	if cfg == nil || len(cfg.APIKeys) == 0 {
+		return
+	}
+	for i := range cfg.APIKeys {
+		cfg.APIKeys[i].Models = NormalizeExcludedModels(cfg.APIKeys[i].Models)
+		cfg.APIKeys[i].ExcludedModels = NormalizeExcludedModels(cfg.APIKeys[i].ExcludedModels)
+	}
+}
+
 func normalizeModelPrefix(prefix string) string {
 	trimmed := strings.TrimSpace(prefix)
 	trimmed = strings.Trim(trimmed, "/")

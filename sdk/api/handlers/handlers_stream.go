@@ -337,6 +337,12 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 	originalRequestedModel := modelName
 	// Speech-only models are reachable solely through the speech entry protocol.
 	execOptions.AllowSpeechModel = isModelExecutionSpeechProtocol(entryProtocol)
+	if !execOptions.InternalSource && !h.clientAPIKeyAllowsModel(ctx, ginContextFromHandlerContext(ctx), modelName) {
+		errChan := make(chan *interfaces.ErrorMessage, 1)
+		errChan <- modelNotAllowedForAPIKeyError(modelName)
+		close(errChan)
+		return nil, nil, errChan
+	}
 	routeDecision, preparedRoute := preparedModelRouteFromContext(ctx, execOptions.SkipRouterPluginID)
 	if !preparedRoute {
 		routeDecision = h.applyModelRouter(ctx, entryProtocol, modelName, rawJSON, true, execOptions)

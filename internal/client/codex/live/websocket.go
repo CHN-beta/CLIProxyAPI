@@ -45,6 +45,10 @@ func (h *Handler) HandleDirectWebsocket(c *gin.Context) {
 	if requestedModel == "" {
 		requestedModel = defaultStandardRealtimeModel
 	}
+	if !h.clientAPIKeyAllowsModel(c.Request.Context(), c, requestedModel) {
+		writeRealtimeError(c, http.StatusForbidden, "model "+requestedModel+" is not allowed for this API key", "invalid_request_error", "model_not_allowed")
+		return
+	}
 	selectionModel := codexRealtimeModel(requestedModel)
 	tokenSession := clientSecretSession(c)
 	if len(tokenSession) > 0 {

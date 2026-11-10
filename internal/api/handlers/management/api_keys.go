@@ -28,12 +28,14 @@ func queryIndex(c *gin.Context) (*int, bool) {
 // APIKeyEntryView is the Management API representation of a client API key with
 // its current billing state. The billing fields are read-only.
 type APIKeyEntryView struct {
-	Key          string   `json:"key"`
-	Name         string   `json:"name,omitempty"`
-	Quota        *float64 `json:"quota,omitempty"`
-	Used         float64  `json:"used"`
-	CurrentMonth string   `json:"current-month"`
-	KeyHash      string   `json:"key-hash"`
+	Key            string   `json:"key"`
+	Name           string   `json:"name,omitempty"`
+	Quota          *float64 `json:"quota,omitempty"`
+	Models         []string `json:"models,omitempty"`
+	ExcludedModels []string `json:"excluded-models,omitempty"`
+	Used           float64  `json:"used"`
+	CurrentMonth   string   `json:"current-month"`
+	KeyHash        string   `json:"key-hash"`
 }
 
 // apiKeyViews enriches configured entries with current-month billing state.
@@ -48,12 +50,14 @@ func (h *Handler) apiKeyViews(entries []config.APIKeyEntry) []APIKeyEntryView {
 		}
 		keyHash := billing.HashAPIKey(key)
 		views = append(views, APIKeyEntryView{
-			Key:          key,
-			Name:         strings.TrimSpace(entry.Name),
-			Quota:        entry.Quota,
-			Used:         billing.SpentUSD(keyHash, now),
-			CurrentMonth: month,
-			KeyHash:      keyHash,
+			Key:            key,
+			Name:           strings.TrimSpace(entry.Name),
+			Quota:          entry.Quota,
+			Models:         append([]string(nil), entry.Models...),
+			ExcludedModels: append([]string(nil), entry.ExcludedModels...),
+			Used:           billing.SpentUSD(keyHash, now),
+			CurrentMonth:   month,
+			KeyHash:        keyHash,
 		})
 	}
 	return views
@@ -102,7 +106,17 @@ func applyAPIKeyEntryPatch(entries []config.APIKeyEntry, body apiKeyPatchBody) (
 		if index < 0 || index >= len(entries) {
 			return nil, fmt.Errorf("invalid index")
 		}
-		value, err := normalizeAPIKeyEntry(*body.Value)
+		incoming := *body.Value
+		// A PATCH that omits a model-policy field must not silently drop the
+		// existing restriction. An explicit empty array ([] -> non-nil empty
+		// slice) still clears that field.
+		if incoming.Models == nil {
+			incoming.Models = entries[index].Models
+		}
+		if incoming.ExcludedModels == nil {
+			incoming.ExcludedModels = entries[index].ExcludedModels
+		}
+		value, err := normalizeAPIKeyEntry(incoming)
 		if err != nil {
 			return nil, err
 		}
@@ -110,16 +124,27 @@ func applyAPIKeyEntryPatch(entries []config.APIKeyEntry, body apiKeyPatchBody) (
 		return entries, nil
 	}
 	if body.Old != nil && body.New != nil {
-		value, err := normalizeAPIKeyEntry(*body.New)
-		if err != nil {
-			return nil, err
-		}
+		incoming := *body.New
 		oldKey := strings.TrimSpace(body.Old.Key)
 		for i := range entries {
 			if strings.TrimSpace(entries[i].Key) == oldKey {
+				if incoming.Models == nil {
+					incoming.Models = entries[i].Models
+				}
+				if incoming.ExcludedModels == nil {
+					incoming.ExcludedModels = entries[i].ExcludedModels
+				}
+				value, err := normalizeAPIKeyEntry(incoming)
+				if err != nil {
+					return nil, err
+				}
 				entries[i] = value
 				return entries, nil
 			}
+		}
+		value, err := normalizeAPIKeyEntry(incoming)
+		if err != nil {
+			return nil, err
 		}
 		return append(entries, value), nil
 	}
@@ -131,7 +156,12 @@ func normalizeAPIKeyEntry(entry config.APIKeyEntry) (config.APIKeyEntry, error) 
 	if key == "" {
 		return config.APIKeyEntry{}, fmt.Errorf("key is required")
 	}
-	normalized := config.APIKeyEntry{Key: key, Name: strings.TrimSpace(entry.Name)}
+	normalized := config.APIKeyEntry{
+		Key:            key,
+		Name:           strings.TrimSpace(entry.Name),
+		Models:         config.NormalizeExcludedModels(entry.Models),
+		ExcludedModels: config.NormalizeExcludedModels(entry.ExcludedModels),
+	}
 	if entry.Quota != nil {
 		quota := *entry.Quota
 		normalized.Quota = &quota

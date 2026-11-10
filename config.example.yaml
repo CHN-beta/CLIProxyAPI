@@ -128,10 +128,17 @@ access:
   #   key:   required secret presented by clients.
   #   name:  optional label shown by the Management API and billing views.
   #   quota: optional monthly spending cap in USD. Omit for unlimited usage.
+  #   models: optional allowlist of client-visible model patterns (case-insensitive
+  #           '*' wildcards). When set, only matching models are listed and callable.
+  #   excluded-models: optional denylist applied after `models`; matching models are
+  #           always rejected, even when they match `models`.
+  #   Omit both lists to allow every model for the key.
   api-keys:
     - key: "your-api-key-1"
       name: "key-1"
       quota: 10.00
+      # models: ["gemini-2.5-*", "gpt-5*"]
+      # excluded-models: ["*-preview"]
     - key: "your-api-key-2"
       name: "key-2"
     - key: "your-api-key-3"

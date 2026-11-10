@@ -583,8 +583,10 @@ func trimAPIKeyEntries(in []config.APIKeyEntry) []config.APIKeyEntry {
 	out := make([]config.APIKeyEntry, len(in))
 	for i := range in {
 		entry := config.APIKeyEntry{
-			Key:  strings.TrimSpace(in[i].Key),
-			Name: strings.TrimSpace(in[i].Name),
+			Key:            strings.TrimSpace(in[i].Key),
+			Name:           strings.TrimSpace(in[i].Name),
+			Models:         config.NormalizeExcludedModels(in[i].Models),
+			ExcludedModels: config.NormalizeExcludedModels(in[i].ExcludedModels),
 		}
 		if in[i].Quota != nil {
 			quota := *in[i].Quota
