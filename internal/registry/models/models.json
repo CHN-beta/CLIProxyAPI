@@ -1860,6 +1860,9 @@
       "context_length": 1048576,
       "max_completion_tokens": 1048576,
       "thinking": {
+        "min": 128,
+        "max": 65535,
+        "dynamic_allowed": true,
         "levels": [
           "low",
           "medium",

@@ -45,6 +45,24 @@ func TestCostUSDRates(t *testing.T) {
 			want:   0.01,
 		},
 		{
+			name:   "hydrogen prefix input",
+			model:  "gemini-4-hydrogen",
+			tokens: TokenCounts{Input: million, UncachedInput: million},
+			want:   0.20,
+		},
+		{
+			name:   "hydrogen antigravity suffix",
+			model:  "gemini-4-hydrogen-xhigh",
+			tokens: TokenCounts{Input: million, UncachedInput: million, Output: million},
+			want:   1.20,
+		},
+		{
+			name:   "hydrogen alias cache read",
+			alias:  "gemini-4-hydrogen",
+			tokens: TokenCounts{Input: million, CacheRead: million},
+			want:   0.01,
+		},
+		{
 			name:   "flash input and output",
 			model:  "gemini-3.5-flash",
 			tokens: TokenCounts{Input: million, UncachedInput: million, Output: million},

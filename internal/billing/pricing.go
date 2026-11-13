@@ -43,7 +43,7 @@ func (r pricingRule) rate(inputTokens int64) Pricing {
 }
 
 var (
-	// argonPricing is the shared Gemini 4 rate card (Argon and Carbon).
+	// argonPricing is the shared Gemini 4 rate card (Argon, Carbon, and Hydrogen).
 	argonPricing              = Pricing{Input: 0.20, CacheRead: 0.01, Output: 1.00}
 	doubaoSeedEvolvingPricing = Pricing{Input: 0.88, CacheRead: 0.176, Output: 4.40}
 )
@@ -150,7 +150,7 @@ func LookupPricing(model, alias string, inputTokens int64) (Pricing, bool) {
 }
 
 func lookupNormalizedPricing(name string, inputTokens int64) (Pricing, bool) {
-	if strings.HasPrefix(name, "gemini-4-argon") || strings.HasPrefix(name, "gemini-4-carbon") {
+	if strings.HasPrefix(name, "gemini-4-argon") || strings.HasPrefix(name, "gemini-4-carbon") || strings.HasPrefix(name, "gemini-4-hydrogen") {
 		return argonPricing, true
 	}
 	if strings.HasPrefix(name, "doubao-seed-evolving") {
