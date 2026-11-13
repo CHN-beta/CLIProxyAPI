@@ -292,7 +292,7 @@ func resolveOpenAIFinishReason(params *convertCliResponseToOpenAIChatParams) (fi
 	case params.SawToolCall:
 		finishReason = "tool_calls"
 	case params.UpstreamFinishReason == "MAX_TOKENS":
-		finishReason = "max_tokens"
+		finishReason = "length"
 	case isAntigravityContentFilterFinishReason(params.UpstreamFinishReason):
 		finishReason = "content_filter"
 	case isAntigravityMalformedFinishReason(params.UpstreamFinishReason) && !params.SawContent:

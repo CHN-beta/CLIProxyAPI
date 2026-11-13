@@ -24,7 +24,19 @@ import (
 )
 
 func (s *Server) applyAccessConfig(oldCfg, newCfg *config.Config) bool {
-	if s == nil || s.accessManager == nil || newCfg == nil {
+	if s == nil || newCfg == nil {
+		return false
+	}
+	if s.tunnelHub != nil {
+		allowed := make([]string, 0, len(newCfg.APIKeys))
+		for _, entry := range newCfg.APIKeys {
+			if entry.Key != "" {
+				allowed = append(allowed, entry.Key)
+			}
+		}
+		s.tunnelHub.UpdateAllowedAPIKeys(allowed)
+	}
+	if s.accessManager == nil {
 		return false
 	}
 	if _, err := access.ApplyAccessProviders(s.accessManager, oldCfg, newCfg); err != nil {
