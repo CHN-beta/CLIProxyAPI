@@ -1338,6 +1338,33 @@ observability:
     # Can also be supplied via CLIPROXY_USAGE_POSTGRES_DSN.
     # postgres-dsn: "postgres://user:password@127.0.0.1:5432/cliproxy?sslmode=disable"
 
+    # USD-per-million-token rates used to bill client API key monthly quotas
+    # (access.api-keys[*].quota). No prices are built in: a model without a
+    # matching entry is billed at zero, so list every priced model explicitly.
+    # `model` accepts case-insensitive '*' wildcards and entries are matched in
+    # order (first match wins), so place specific entries before broad patterns.
+    # Optional `tiers` replace the entry rates once a request's input token
+    # count reaches `min-input-tokens`.
+    # model-pricing:
+    #   - model: "gemini-4-hydrogen"
+    #     input: 0.20
+    #     cache-read: 0.01
+    #     output: 1.00
+    #   - model: "gemini-3.1-pro"
+    #     input: 0.20
+    #     cache-read: 0.02
+    #     output: 1.20
+    #     tiers:
+    #       - min-input-tokens: 200001
+    #         input: 0.40
+    #         cache-read: 0.04
+    #         output: 1.80
+    #   - model: "claude-opus-4-6*"
+    #     input: 0.50
+    #     cache-read: 0.05
+    #     cache-write: 0.625
+    #     output: 2.50
+
   # Enable pprof HTTP debug server (host:port). Keep it bound to localhost for safety.
   pprof:
     enable: false

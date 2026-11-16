@@ -130,6 +130,10 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 	cfg.SanitizeOAuthRequestScopedErrors()
 	cfg.SanitizePayloadRules()
 	cfg.NormalizeAPIKeyModels()
+	if errValidate := cfg.ValidateModelPricing(); errValidate != nil {
+		return nil, errValidate
+	}
+	cfg.NormalizeModelPricing()
 
 	return &cfg, nil
 }

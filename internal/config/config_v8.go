@@ -114,6 +114,7 @@ func buildV8Paths() []configPath {
 		{"error-logs-max-files", "observability.logs.error-logs-max-files"},
 		{"usage-statistics-enabled", "observability.usage.usage-statistics-enabled"},
 		{"usage-postgres-dsn", "observability.usage.postgres-dsn"},
+		{"model-pricing", "observability.usage.model-pricing"},
 		{"redis-usage-queue-retention-seconds", "observability.usage.redis-usage-queue-retention-seconds"}, {"pprof", "observability.pprof"},
 	}
 	var out []configPath

@@ -3,7 +3,9 @@
 package billing
 
 import (
+	"sort"
 	"strings"
+	"sync/atomic"
 
 	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 )
@@ -29,84 +31,62 @@ type Pricing struct {
 	Output     float64
 }
 
-type pricingRule struct {
-	pricing   Pricing
-	threshold int64
-	above     Pricing
+// RateTier overrides an entry's rates once a request reaches MinInputTokens
+// input tokens.
+type RateTier struct {
+	MinInputTokens int64
+	Pricing        Pricing
 }
 
-func (r pricingRule) rate(inputTokens int64) Pricing {
-	if r.threshold > 0 && inputTokens > r.threshold {
-		return r.above
+// RateEntry prices one model pattern. Model uses case-insensitive '*'
+// wildcards; entries are tried in order and the first match wins.
+type RateEntry struct {
+	Model   string
+	Pricing Pricing
+	Tiers   []RateTier
+}
+
+type rateEntry struct {
+	pattern string
+	base    Pricing
+	tiers   []RateTier
+}
+
+// rate resolves the applicable rate card for an input token count.
+func (e rateEntry) rate(inputTokens int64) Pricing {
+	pricing := e.base
+	for _, tier := range e.tiers {
+		if inputTokens < tier.MinInputTokens {
+			break
+		}
+		pricing = tier.Pricing
 	}
-	return r.pricing
+	return pricing
 }
 
-var (
-	// argonPricing is the shared Gemini 4 rate card (Argon, Carbon, and Hydrogen).
-	argonPricing              = Pricing{Input: 0.20, CacheRead: 0.01, Output: 1.00}
-	doubaoSeedEvolvingPricing = Pricing{Input: 0.88, CacheRead: 0.176, Output: 4.40}
-)
-
-var fixedPricing = map[string]Pricing{
-	"gemini-3.8-flash":              {Input: 0.075, CacheRead: 0.0075, Output: 0.375},
-	"gemini-3.7-flash":              {Input: 0.075, CacheRead: 0.0075, Output: 0.375},
-	"gemini-3.6-flash":              {Input: 0.075, CacheRead: 0.0075, Output: 0.375},
-	"gemini-3.5-flash":              {Input: 0.15, CacheRead: 0.015, Output: 0.75},
-	"gemini-3.5-flash-lite":         {Input: 0.03, CacheRead: 0.003, Output: 0.25},
-	"gemini-3-flash":                {Input: 0.05, CacheRead: 0.005, Output: 0.30},
-	"gemini-3-flash-preview":        {Input: 0.05, CacheRead: 0.005, Output: 0.30},
-	"gemini-3.1-flash-lite":         {Input: 0.025, CacheRead: 0.0025, Output: 0.15},
-	"gemini-3.1-flash-lite-preview": {Input: 0.025, CacheRead: 0.0025, Output: 0.15},
-	"gemini-2.5-flash":              {Input: 0.03, CacheRead: 0.003, Output: 0.25},
-	"gemini-2.5-flash-lite":         {Input: 0.01, CacheRead: 0.001, Output: 0.04},
-	"deepseek-flash":                {Input: 0.44, CacheRead: 0.014, Output: 1.32},
-	"deepseek-v4-flash":             {Input: 0.44, CacheRead: 0.014, Output: 1.32},
-	"deepseek-chat":                 {Input: 0.44, CacheRead: 0.014, Output: 1.32},
-	"deepseek-v4-pro":               {Input: 1.32, CacheRead: 0.042, Output: 3.96},
-	"deepseek-reasoner":             {Input: 1.32, CacheRead: 0.042, Output: 3.96},
-	"doubao-seed-evolving":          doubaoSeedEvolvingPricing,
-	"doubao-seed-2.1-pro":           doubaoSeedEvolvingPricing,
-	"doubao-seed-2-1-pro":           doubaoSeedEvolvingPricing,
-	"doubao-seed-2.1-turbo":         {Input: 0.44, CacheRead: 0.088, Output: 2.20},
-	"doubao-seed-2-1-turbo":         {Input: 0.44, CacheRead: 0.088, Output: 2.20},
-	"doubao-seed-2.1-lite":          {Input: 0.12, CacheRead: 0.024, Output: 0.40},
-	"doubao-seed-2-1-lite":          {Input: 0.12, CacheRead: 0.024, Output: 0.40},
+type rateTable struct {
+	entries []rateEntry
 }
 
-var tieredPricing = map[string]pricingRule{
-	"gemini-3.1-pro":         {pricing: Pricing{Input: 0.20, CacheRead: 0.02, Output: 1.20}, threshold: 200_000, above: Pricing{Input: 0.40, CacheRead: 0.04, Output: 1.80}},
-	"gemini-3.1-pro-preview": {pricing: Pricing{Input: 0.20, CacheRead: 0.02, Output: 1.20}, threshold: 200_000, above: Pricing{Input: 0.40, CacheRead: 0.04, Output: 1.80}},
-	"gemini-3-pro":           {pricing: Pricing{Input: 0.20, CacheRead: 0.02, Output: 1.20}, threshold: 200_000, above: Pricing{Input: 0.40, CacheRead: 0.04, Output: 1.80}},
-	"gemini-3-pro-preview":   {pricing: Pricing{Input: 0.20, CacheRead: 0.02, Output: 1.20}, threshold: 200_000, above: Pricing{Input: 0.40, CacheRead: 0.04, Output: 1.80}},
-	"gemini-2.5-pro":         {pricing: Pricing{Input: 0.125, CacheRead: 0.0125, Output: 1.00}, threshold: 200_000, above: Pricing{Input: 0.25, CacheRead: 0.025, Output: 1.50}},
-	"claude-haiku-5-5":       {pricing: Pricing{Input: 0.10, CacheRead: 0.01, CacheWrite: 0.125, Output: 0.50}},
-	"claude-haiku-4-5":       {pricing: Pricing{Input: 0.10, CacheRead: 0.01, CacheWrite: 0.125, Output: 0.50}},
-}
+var activeRateTable atomic.Pointer[rateTable]
 
-// datedPricing applies to exact base names and their dated variants, such as
-// claude-opus-4-6-20260205. Longer bases must precede their prefixes.
-var datedPricing = []struct {
-	base string
-	rule pricingRule
-}{
-	{base: "claude-opus-5-5", rule: pricingRule{pricing: Pricing{Input: 0.50, CacheRead: 0.05, CacheWrite: 0.625, Output: 2.50}}},
-	{base: "claude-opus-5", rule: pricingRule{pricing: Pricing{Input: 0.50, CacheRead: 0.05, CacheWrite: 0.625, Output: 2.50}}},
-	{base: "claude-opus-4-8", rule: pricingRule{pricing: Pricing{Input: 0.50, CacheRead: 0.05, CacheWrite: 0.625, Output: 2.50}}},
-	{base: "claude-opus-4-7", rule: pricingRule{pricing: Pricing{Input: 0.50, CacheRead: 0.05, CacheWrite: 0.625, Output: 2.50}}},
-	{base: "claude-opus-4-6", rule: pricingRule{pricing: Pricing{Input: 0.50, CacheRead: 0.05, CacheWrite: 0.625, Output: 2.50}}},
-	{base: "claude-sonnet-5-5", rule: pricingRule{pricing: Pricing{Input: 0.20, CacheRead: 0.02, CacheWrite: 0.25, Output: 1.00}}},
-	{base: "claude-sonnet-5", rule: pricingRule{pricing: Pricing{Input: 0.20, CacheRead: 0.02, CacheWrite: 0.25, Output: 1.00}}},
-	{base: "claude-sonnet-4-6", rule: pricingRule{pricing: Pricing{Input: 0.30, CacheRead: 0.03, CacheWrite: 0.375, Output: 1.50}}},
-	{base: "claude-sonnet-4-5", rule: pricingRule{pricing: Pricing{Input: 0.30, CacheRead: 0.03, CacheWrite: 0.375, Output: 1.50}}},
-	{base: "claude-haiku-5-5", rule: tieredPricing["claude-haiku-5-5"]},
-	{base: "claude-haiku-4-5", rule: tieredPricing["claude-haiku-4-5"]},
-	{base: "doubao-seed-2.1-pro", rule: pricingRule{pricing: doubaoSeedEvolvingPricing}},
-	{base: "doubao-seed-2-1-pro", rule: pricingRule{pricing: doubaoSeedEvolvingPricing}},
-	{base: "doubao-seed-2.1-turbo", rule: pricingRule{pricing: fixedPricing["doubao-seed-2.1-turbo"]}},
-	{base: "doubao-seed-2-1-turbo", rule: pricingRule{pricing: fixedPricing["doubao-seed-2-1-turbo"]}},
-	{base: "doubao-seed-2.1-lite", rule: pricingRule{pricing: fixedPricing["doubao-seed-2.1-lite"]}},
-	{base: "doubao-seed-2-1-lite", rule: pricingRule{pricing: fixedPricing["doubao-seed-2-1-lite"]}},
+// ConfigurePricing replaces the process-wide rate table. It is safe to call on
+// every config reload. Models with no matching entry are billed at zero, so
+// callers must supply every priced model.
+func ConfigurePricing(entries []RateEntry) {
+	table := &rateTable{}
+	for _, entry := range entries {
+		pattern := strings.ToLower(strings.TrimSpace(entry.Model))
+		if pattern == "" {
+			continue
+		}
+		tiers := append([]RateTier(nil), entry.Tiers...)
+		sort.SliceStable(tiers, func(i, j int) bool {
+			return tiers[i].MinInputTokens < tiers[j].MinInputTokens
+		})
+		table.entries = append(table.entries, rateEntry{pattern: pattern, base: entry.Pricing, tiers: tiers})
+	}
+	activeRateTable.Store(table)
 }
 
 var thinkingSuffixes = []string{"-high", "-medium", "-low", "-minimal", "-thinking"}
@@ -134,61 +114,80 @@ func NormalizeModelName(raw string) string {
 	return name
 }
 
-// LookupPricing resolves the rate card for a model. Record.Model is tried first,
-// then Record.Alias. Unknown models report false (zero cost).
+// LookupPricing resolves the configured rate card for a model. Record.Model is
+// tried first, then Record.Alias; both the raw and the normalized model names
+// are matched. Models without a configured entry report false (zero cost).
 func LookupPricing(model, alias string, inputTokens int64) (Pricing, bool) {
-	for _, candidate := range []string{model, alias} {
-		normalized := NormalizeModelName(candidate)
-		if normalized == "" {
+	table := activeRateTable.Load()
+	if table == nil || len(table.entries) == 0 {
+		return Pricing{}, false
+	}
+	for _, candidate := range pricingCandidates(model, alias) {
+		for _, entry := range table.entries {
+			if modelPatternMatches(entry.pattern, candidate) {
+				return entry.rate(inputTokens), true
+			}
+		}
+	}
+	return Pricing{}, false
+}
+
+// pricingCandidates lists the names a configured pattern may target: the raw
+// model and alias as reported by the provider, and their normalized forms.
+func pricingCandidates(model, alias string) []string {
+	out := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	for _, raw := range []string{model, alias} {
+		raw = strings.ToLower(strings.TrimSpace(raw))
+		if raw == "" {
 			continue
 		}
-		if pricing, ok := lookupNormalizedPricing(normalized, inputTokens); ok {
-			return pricing, true
+		for _, candidate := range []string{raw, NormalizeModelName(raw)} {
+			if candidate == "" {
+				continue
+			}
+			if _, exists := seen[candidate]; exists {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			out = append(out, candidate)
 		}
 	}
-	return Pricing{}, false
+	return out
 }
 
-func lookupNormalizedPricing(name string, inputTokens int64) (Pricing, bool) {
-	if strings.HasPrefix(name, "gemini-4-argon") || strings.HasPrefix(name, "gemini-4-carbon") || strings.HasPrefix(name, "gemini-4-hydrogen") {
-		return argonPricing, true
+// modelPatternMatches performs case-insensitive wildcard matching where '*'
+// matches any substring.
+func modelPatternMatches(pattern, model string) bool {
+	if pattern == "" || model == "" {
+		return false
 	}
-	if strings.HasPrefix(name, "doubao-seed-evolving") {
-		return doubaoSeedEvolvingPricing, true
-	}
-	if pricing, ok := fixedPricing[name]; ok {
-		return pricing, true
-	}
-	if rule, ok := tieredPricing[name]; ok {
-		return rule.rate(inputTokens), true
-	}
-	for _, candidate := range datedPricing {
-		if matchDatedVariant(name, candidate.base) {
-			return candidate.rule.rate(inputTokens), true
-		}
-	}
-	return Pricing{}, false
-}
-
-// matchDatedVariant accepts the exact base name or a dated variant whose
-// remainder is purely numeric (for example -20260205).
-func matchDatedVariant(name, base string) bool {
-	if name == base {
+	if pattern == "*" {
 		return true
 	}
-	if !strings.HasPrefix(name, base+"-") {
-		return false
-	}
-	suffix := strings.TrimPrefix(name, base+"-")
-	if suffix == "" {
-		return false
-	}
-	for _, r := range suffix {
-		if r < '0' || r > '9' {
+	pi, mi := 0, 0
+	starIndex, starMatch := -1, 0
+	for mi < len(model) {
+		switch {
+		case pi < len(pattern) && pattern[pi] == model[mi]:
+			pi++
+			mi++
+		case pi < len(pattern) && pattern[pi] == '*':
+			starIndex = pi
+			starMatch = mi
+			pi++
+		case starIndex != -1:
+			pi = starIndex + 1
+			starMatch++
+			mi = starMatch
+		default:
 			return false
 		}
 	}
-	return true
+	for pi < len(pattern) && pattern[pi] == '*' {
+		pi++
+	}
+	return pi == len(pattern)
 }
 
 // TokenCountsFromDetail normalizes provider usage into mutually exclusive
@@ -255,7 +254,8 @@ func nonNegative(value int64) int64 {
 	return value
 }
 
-// CostUSD prices token counts with the resolved rate card.
+// CostUSD prices token counts with the resolved rate card. Models without a
+// configured rate cost nothing.
 func CostUSD(model, alias string, tokens TokenCounts) float64 {
 	pricing, ok := LookupPricing(model, alias, nonNegative(tokens.Input))
 	if !ok {

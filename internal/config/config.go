@@ -102,6 +102,10 @@ type Config struct {
 	// persistence while keeping in-memory accounting active.
 	UsagePostgresDSN string `yaml:"usage-postgres-dsn,omitempty" json:"usage-postgres-dsn,omitempty"`
 
+	// ModelPricing lists the USD-per-million-token rates used to bill client API
+	// key quotas. Models without a matching entry are billed at zero.
+	ModelPricing []ModelPricingEntry `yaml:"model-pricing,omitempty" json:"model-pricing,omitempty"`
+
 	// DisableCooling disables auth/model cooldown scheduling when true unless a credential or provider overrides it.
 	DisableCooling bool `yaml:"disable-cooling" json:"disable-cooling"`
 

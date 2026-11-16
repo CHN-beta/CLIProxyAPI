@@ -343,6 +343,11 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Normalize per-client-key model allow/deny patterns.
 	cfg.NormalizeAPIKeyModels()
 
+	if errValidate := cfg.ValidateModelPricing(); errValidate != nil {
+		return nil, errValidate
+	}
+	cfg.NormalizeModelPricing()
+
 	// Only conflicting legacy fields are removed on load. A legacy-only document
 	// stays legacy until a v8 configuration write explicitly migrates it.
 	current, errRead := os.ReadFile(configFile)

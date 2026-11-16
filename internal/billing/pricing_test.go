@@ -11,8 +11,25 @@ func almostEqual(a, b float64) bool {
 	return math.Abs(a-b) < 1e-9
 }
 
+// configureTestPricing installs rate cards for the duration of one test.
+func configureTestPricing(t *testing.T, entries ...RateEntry) {
+	t.Helper()
+	ConfigurePricing(entries)
+	t.Cleanup(func() { ConfigurePricing(nil) })
+}
+
 func TestCostUSDRates(t *testing.T) {
 	const million = 1_000_000
+	configureTestPricing(t,
+		RateEntry{Model: "gemini-4-*", Pricing: Pricing{Input: 0.20, CacheRead: 0.01, Output: 1.00}},
+		RateEntry{Model: "gemini-3.5-flash", Pricing: Pricing{Input: 0.15, CacheRead: 0.015, Output: 0.75}},
+		RateEntry{Model: "claude-opus-4-6*", Pricing: Pricing{Input: 0.50, CacheRead: 0.05, CacheWrite: 0.625, Output: 2.50}},
+		RateEntry{Model: "claude-sonnet-4-5", Pricing: Pricing{Input: 0.30, CacheRead: 0.03, CacheWrite: 0.375, Output: 1.50}},
+		RateEntry{Model: "deepseek-flash", Pricing: Pricing{Input: 0.44, CacheRead: 0.014, Output: 1.32}},
+		RateEntry{Model: "deepseek-v4-pro", Pricing: Pricing{Input: 1.32, CacheRead: 0.042, Output: 3.96}},
+		RateEntry{Model: "doubao-seed-evolving*", Pricing: Pricing{Input: 0.88, CacheRead: 0.176, Output: 4.40}},
+	)
+
 	tests := []struct {
 		name   string
 		model  string
@@ -21,61 +38,31 @@ func TestCostUSDRates(t *testing.T) {
 		want   float64
 	}{
 		{
-			name:   "argon prefix input",
+			name:   "wildcard input",
 			model:  "gemini-4-argon-preview",
 			tokens: TokenCounts{Input: million, UncachedInput: million},
 			want:   0.20,
 		},
 		{
-			name:   "carbon prefix input",
-			model:  "gemini-4-carbon",
-			tokens: TokenCounts{Input: million, UncachedInput: million},
-			want:   0.20,
-		},
-		{
-			name:   "carbon high thinking suffix",
+			name:   "thinking suffix normalization",
 			model:  "gemini-4-carbon-high",
 			tokens: TokenCounts{Input: million, UncachedInput: million, Output: million},
 			want:   1.20,
 		},
 		{
-			name:   "carbon alias cache read",
+			name:   "alias cache read",
 			alias:  "gemini-4-carbon",
 			tokens: TokenCounts{Input: million, CacheRead: million},
 			want:   0.01,
 		},
 		{
-			name:   "hydrogen prefix input",
-			model:  "gemini-4-hydrogen",
-			tokens: TokenCounts{Input: million, UncachedInput: million},
-			want:   0.20,
-		},
-		{
-			name:   "hydrogen antigravity suffix",
-			model:  "gemini-4-hydrogen-xhigh",
-			tokens: TokenCounts{Input: million, UncachedInput: million, Output: million},
-			want:   1.20,
-		},
-		{
-			name:   "hydrogen alias cache read",
-			alias:  "gemini-4-hydrogen",
-			tokens: TokenCounts{Input: million, CacheRead: million},
-			want:   0.01,
-		},
-		{
-			name:   "flash input and output",
-			model:  "gemini-3.5-flash",
-			tokens: TokenCounts{Input: million, UncachedInput: million, Output: million},
-			want:   0.90,
-		},
-		{
-			name:   "thinking suffix and provider prefix",
+			name:   "provider and thinking prefixes",
 			model:  "vertex/gemini-3.5-flash-HIGH",
 			tokens: TokenCounts{Input: million, UncachedInput: million},
 			want:   0.15,
 		},
 		{
-			name:   "cache read",
+			name:   "exact cache read",
 			model:  "gemini-3.5-flash",
 			tokens: TokenCounts{Input: million, CacheRead: million},
 			want:   0.015,
@@ -88,7 +75,7 @@ func TestCostUSDRates(t *testing.T) {
 			want:   0.50,
 		},
 		{
-			name:   "claude dated cache write",
+			name:   "dated variant cache write",
 			model:  "claude-opus-4-6-20260205",
 			tokens: TokenCounts{CacheWrite: million},
 			want:   0.625,
@@ -100,41 +87,22 @@ func TestCostUSDRates(t *testing.T) {
 			want:   1.50,
 		},
 		{
-			name:   "deepseek peak",
-			model:  "deepseek-v4-pro",
-			tokens: TokenCounts{Input: million, UncachedInput: million},
-			want:   1.32,
-		},
-		{
-			name:   "deepseek cache read",
+			name:   "cache read rate",
 			model:  "deepseek-flash",
 			tokens: TokenCounts{Input: million, CacheRead: million},
 			want:   0.014,
 		},
 		{
-			name:   "doubao seed evolving input cache and output",
-			model:  "doubao-seed-evolving",
+			name:   "wildcard cache and output",
+			model:  "doubao/doubao-seed-evolving-latest-version",
 			tokens: TokenCounts{Input: 2 * million, UncachedInput: million, CacheRead: million, Output: million},
 			want:   0.88 + 0.176 + 4.40,
 		},
 		{
-			name:   "doubao seed evolving latest version prefix",
-			model:  "doubao/doubao-seed-evolving-latest-version",
-			tokens: TokenCounts{Input: million, UncachedInput: million},
-			want:   0.88,
-		},
-		{
-			name:   "unknown model is free",
+			name:   "unconfigured model is free",
 			model:  "mystery-1",
 			tokens: TokenCounts{Input: million, UncachedInput: million},
 			want:   0,
-		},
-		{
-			name:   "prefix match on alias",
-			model:  "",
-			alias:  "gemini-4-argon",
-			tokens: TokenCounts{Output: million},
-			want:   1.00,
 		},
 	}
 
@@ -148,7 +116,29 @@ func TestCostUSDRates(t *testing.T) {
 	}
 }
 
+func TestPricingFirstMatchWins(t *testing.T) {
+	configureTestPricing(t,
+		RateEntry{Model: "gpt-5*", Pricing: Pricing{Input: 1.00}},
+		RateEntry{Model: "gpt-5-mini", Pricing: Pricing{Input: 0.25}},
+	)
+	pricing, ok := LookupPricing("gpt-5-mini", "", 0)
+	if !ok || !almostEqual(pricing.Input, 1.00) {
+		t.Fatalf("pricing = %+v ok=%v, want the first matching entry", pricing, ok)
+	}
+}
+
 func TestLookupPricingTiers(t *testing.T) {
+	configureTestPricing(t,
+		RateEntry{
+			Model:   "gemini-3.1-pro",
+			Pricing: Pricing{Input: 0.20, CacheRead: 0.02, Output: 1.20},
+			Tiers: []RateTier{
+				{MinInputTokens: 200_001, Pricing: Pricing{Input: 0.40, CacheRead: 0.04, Output: 1.80}},
+			},
+		},
+		RateEntry{Model: "claude-haiku-4-5", Pricing: Pricing{Input: 0.10, CacheRead: 0.01, Output: 0.50}},
+		RateEntry{Model: "claude-haiku-5-5*", Pricing: Pricing{Input: 0.10, CacheRead: 0.01, Output: 0.50}},
+	)
 	tests := []struct {
 		name        string
 		model       string
@@ -157,12 +147,11 @@ func TestLookupPricingTiers(t *testing.T) {
 		wantRead    float64
 		wantOutput  float64
 	}{
-		{name: "gemini 3.1 pro at threshold", model: "gemini-3.1-pro", inputTokens: 200_000, wantInput: 0.20, wantRead: 0.02, wantOutput: 1.20},
-		{name: "gemini 3.1 pro above threshold", model: "gemini-3.1-pro", inputTokens: 200_001, wantInput: 0.40, wantRead: 0.04, wantOutput: 1.80},
-		{name: "gemini 2.5 pro above threshold", model: "gemini-2.5-pro", inputTokens: 250_000, wantInput: 0.25, wantRead: 0.025, wantOutput: 1.50},
-		{name: "haiku flat rate", model: "claude-haiku-4-5", inputTokens: 100_000, wantInput: 0.10, wantRead: 0.01, wantOutput: 0.50},
-		{name: "haiku dated flat rate", model: "claude-haiku-5-5-20260101", inputTokens: 250_000, wantInput: 0.10, wantRead: 0.01, wantOutput: 0.50},
-		{name: "haiku preview is unknown", model: "claude-haiku-4-5-preview", inputTokens: 1, wantInput: 0},
+		{name: "tier at threshold", model: "gemini-3.1-pro", inputTokens: 200_000, wantInput: 0.20, wantRead: 0.02, wantOutput: 1.20},
+		{name: "tier above threshold", model: "gemini-3.1-pro", inputTokens: 200_001, wantInput: 0.40, wantRead: 0.04, wantOutput: 1.80},
+		{name: "flat rate", model: "claude-haiku-4-5", inputTokens: 100_000, wantInput: 0.10, wantRead: 0.01, wantOutput: 0.50},
+		{name: "dated flat rate", model: "claude-haiku-5-5-20260101", inputTokens: 250_000, wantInput: 0.10, wantRead: 0.01, wantOutput: 0.50},
+		{name: "unknown model", model: "claude-haiku-9", inputTokens: 1, wantInput: 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -183,6 +172,20 @@ func TestLookupPricingTiers(t *testing.T) {
 	}
 }
 
+func TestPricingReloadReplacesTable(t *testing.T) {
+	configureTestPricing(t, RateEntry{Model: "reload-model", Pricing: Pricing{Input: 5}})
+	if _, ok := LookupPricing("reload-model", "", 0); !ok {
+		t.Fatal("configured model did not match")
+	}
+	ConfigurePricing(nil)
+	if _, ok := LookupPricing("reload-model", "", 0); ok {
+		t.Fatal("cleared pricing table still matched")
+	}
+	if cost := CostUSD("reload-model", "", TokenCounts{UncachedInput: 1_000_000}); cost != 0 {
+		t.Fatalf("cost after clearing prices = %v, want 0", cost)
+	}
+}
+
 func TestNormalizeModelName(t *testing.T) {
 	tests := map[string]string{
 		" Vertex/Gemini-3.1-Pro-Preview ": "gemini-3.1-pro-preview",
@@ -198,6 +201,7 @@ func TestNormalizeModelName(t *testing.T) {
 }
 
 func TestTokenCountsNeverDoubleChargeCachedInput(t *testing.T) {
+	configureTestPricing(t, RateEntry{Model: "deepseek-flash", Pricing: Pricing{Input: 0.44, CacheRead: 0.014, Output: 1.32}})
 	detail := coreusage.Detail{
 		InputTokens:     1_000_000,
 		CachedTokens:    400_000,
@@ -231,6 +235,7 @@ func TestTokenCountsClaudeIndependentBuckets(t *testing.T) {
 }
 
 func TestCostUSDForRecord(t *testing.T) {
+	configureTestPricing(t, RateEntry{Model: "gemini-2.5-flash", Pricing: Pricing{Input: 0.03, CacheRead: 0.003, Output: 0.25}})
 	record := coreusage.Record{
 		Provider: "gemini",
 		Model:    "gemini-2.5-flash",

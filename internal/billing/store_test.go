@@ -21,7 +21,18 @@ func usageRecord(key, model string, at time.Time) coreusage.Record {
 	}
 }
 
+// configureStoreTestPricing installs the rate cards these store tests bill with.
+func configureStoreTestPricing(t *testing.T) {
+	t.Helper()
+	ConfigurePricing([]RateEntry{
+		{Model: "deepseek-flash", Pricing: Pricing{Input: 0.44, CacheRead: 0.014, Output: 1.32}},
+		{Model: "deepseek-v4-pro", Pricing: Pricing{Input: 1.32, CacheRead: 0.042, Output: 3.96}},
+	})
+	t.Cleanup(func() { ConfigurePricing(nil) })
+}
+
 func TestStoreTracksMonthlySpendInMemory(t *testing.T) {
+	configureStoreTestPricing(t)
 	store := NewStore("")
 	at := time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local)
 	record := usageRecord("client-key", "deepseek-flash", at)
@@ -57,6 +68,7 @@ func TestStoreSkipsFailedAndKeylessRecords(t *testing.T) {
 }
 
 func TestStoreUsesContextAPIKeyFallback(t *testing.T) {
+	configureStoreTestPricing(t)
 	store := NewStore("")
 	at := time.Now()
 	ctx := coreusage.WithAPIKey(context.Background(), "context-key")
@@ -67,6 +79,7 @@ func TestStoreUsesContextAPIKeyFallback(t *testing.T) {
 }
 
 func TestStoreAccumulatesAndResolvesUnknownModelsFree(t *testing.T) {
+	configureStoreTestPricing(t)
 	store := NewStore("")
 	at := time.Now()
 	store.HandleUsage(context.Background(), usageRecord("k", "deepseek-flash", at))
