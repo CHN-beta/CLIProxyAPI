@@ -1,13 +1,13 @@
 package handlers
 
 import (
-	"encoding/json"
 	"maps"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/MoeForge/moego/json"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/interfaces"
@@ -789,6 +789,48 @@ func modelListEntryID(raw json.RawMessage) string {
 // ModelDetailIDContextKey requests selection from the final, plugin-filtered catalog.
 const ModelDetailIDContextKey = "cliproxy.model_detail_id"
 
+// Metadata keys carrying downstream caller identity to model-directory interceptors.
+const (
+	modelListAccessProviderMetadataKey = "access_provider"
+	modelListFrontendAuthMetadataKey   = "frontend_auth_metadata"
+)
+
+// modelListInterceptorMetadata assembles the caller identity metadata forwarded to model-list
+// response interceptors and lifecycle events, mirroring the metadata built for execution paths.
+func modelListInterceptorMetadata(c *gin.Context) map[string]any {
+	if c == nil {
+		return nil
+	}
+	var meta map[string]any
+	setMeta := func(key string, value any) {
+		if meta == nil {
+			meta = make(map[string]any)
+		}
+		meta[key] = value
+	}
+	if callerScope := requestCallerScope(c); callerScope != "" {
+		setMeta(coreexecutor.CallerScopeMetadataKey, callerScope)
+	}
+	if provider, ok := c.Get("accessProvider"); ok {
+		if providerName, isString := provider.(string); isString && strings.TrimSpace(providerName) != "" {
+			setMeta(modelListAccessProviderMetadataKey, strings.TrimSpace(providerName))
+		}
+	}
+	if rawMetadata, ok := c.Get("accessMetadata"); ok {
+		switch authMetadata := rawMetadata.(type) {
+		case map[string]string:
+			if len(authMetadata) > 0 {
+				setMeta(modelListFrontendAuthMetadataKey, maps.Clone(authMetadata))
+			}
+		case map[string]any:
+			if len(authMetadata) > 0 {
+				setMeta(modelListFrontendAuthMetadataKey, maps.Clone(authMetadata))
+			}
+		}
+	}
+	return meta
+}
+
 // WriteModelListResponse serializes the model-list payload, applies plugin response interceptors
 // if a plugin host is configured, and writes the resulting headers and body to the Gin context.
 func (h *BaseAPIHandler) WriteModelListResponse(c *gin.Context, sourceFormat string, payload any) {
@@ -827,7 +869,8 @@ func (h *BaseAPIHandler) WriteModelListResponse(c *gin.Context, sourceFormat str
 		if c.Request != nil {
 			reqHeaders = cloneHeader(c.Request.Header)
 		}
-		lifecycle = h.newRequestLifecycleTracker(ctx, sourceFormat, "", "", false, nil, "")
+		metadata := modelListInterceptorMetadata(c)
+		lifecycle = h.newRequestLifecycleTracker(ctx, sourceFormat, "", "", false, metadata, "")
 		resp := interceptResponse(ctx, host, pluginapi.ResponseInterceptRequest{
 			RequestID:       lifecycle.requestID(),
 			SourceFormat:    sourceFormat,
@@ -840,7 +883,7 @@ func (h *BaseAPIHandler) WriteModelListResponse(c *gin.Context, sourceFormat str
 			RequestBody:     nil,
 			Body:            cloneBytes(body),
 			StatusCode:      http.StatusOK,
-			Metadata:        nil,
+			Metadata:        metadata,
 		}, "")
 		if len(resp.Body) > 0 {
 			body = cloneBytes(resp.Body)
