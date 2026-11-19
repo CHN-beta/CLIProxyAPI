@@ -24,18 +24,18 @@ func TestConfigureBillingPublishesModelPricing(t *testing.T) {
 	t.Cleanup(func() { configureBilling(&config.Config{}) })
 
 	const million = 1_000_000
-	if got := billing.CostUSD("priced-model", "", billing.TokenCounts{UncachedInput: million}); got != 2 {
-		t.Fatalf("base input cost = %v, want 2", got)
+	if got := billing.CostUSD("priced-model-high", billing.TokenCounts{Input: 500_000, UncachedInput: 500_000}); got != 1 {
+		t.Fatalf("base input cost = %v, want 1", got)
 	}
-	if got := billing.CostUSD("priced-model", "", billing.TokenCounts{Input: 2 * million, UncachedInput: 2 * million}); got != 8 {
+	if got := billing.CostUSD("priced-model-high", billing.TokenCounts{Input: 2 * million, UncachedInput: 2 * million}); got != 8 {
 		t.Fatalf("tiered input cost = %v, want 8", got)
 	}
-	if got := billing.CostUSD("other-model", "", billing.TokenCounts{UncachedInput: million}); got != 0 {
+	if got := billing.CostUSD("other-model", billing.TokenCounts{UncachedInput: million}); got != 0 {
 		t.Fatalf("unpriced model cost = %v, want 0", got)
 	}
 
 	configureBilling(&config.Config{})
-	if got := billing.CostUSD("priced-model", "", billing.TokenCounts{UncachedInput: million}); got != 0 {
+	if got := billing.CostUSD("priced-model", billing.TokenCounts{UncachedInput: million}); got != 0 {
 		t.Fatalf("cost after clearing prices = %v, want 0", got)
 	}
 }

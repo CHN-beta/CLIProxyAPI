@@ -32,75 +32,67 @@ func TestCostUSDRates(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		model  string
 		alias  string
 		tokens TokenCounts
 		want   float64
 	}{
 		{
 			name:   "wildcard input",
-			model:  "gemini-4-argon-preview",
+			alias:  "gemini-4-argon-preview",
 			tokens: TokenCounts{Input: million, UncachedInput: million},
 			want:   0.20,
 		},
 		{
 			name:   "thinking suffix normalization",
-			model:  "gemini-4-carbon-high",
+			alias:  "gemini-4-carbon-high",
 			tokens: TokenCounts{Input: million, UncachedInput: million, Output: million},
 			want:   1.20,
 		},
 		{
-			name:   "alias cache read",
+			name:   "exact alias cache read",
 			alias:  "gemini-4-carbon",
 			tokens: TokenCounts{Input: million, CacheRead: million},
 			want:   0.01,
 		},
 		{
 			name:   "provider and thinking prefixes",
-			model:  "vertex/gemini-3.5-flash-HIGH",
+			alias:  "vertex/gemini-3.5-flash-HIGH",
 			tokens: TokenCounts{Input: million, UncachedInput: million},
 			want:   0.15,
 		},
 		{
 			name:   "exact cache read",
-			model:  "gemini-3.5-flash",
+			alias:  "gemini-3.5-flash",
 			tokens: TokenCounts{Input: million, CacheRead: million},
 			want:   0.015,
 		},
 		{
-			name:   "alias resolves when model unknown",
-			model:  "not-a-model",
-			alias:  "vertex/claude-opus-4-6-20260205",
-			tokens: TokenCounts{Input: million, UncachedInput: million},
-			want:   0.50,
-		},
-		{
 			name:   "dated variant cache write",
-			model:  "claude-opus-4-6-20260205",
+			alias:  "claude-opus-4-6-20260205",
 			tokens: TokenCounts{CacheWrite: million},
 			want:   0.625,
 		},
 		{
 			name:   "output and reasoning are each charged once",
-			model:  "claude-sonnet-4-5",
+			alias:  "claude-sonnet-4-5",
 			tokens: TokenCounts{Output: 500_000, Reasoning: 500_000},
 			want:   1.50,
 		},
 		{
 			name:   "cache read rate",
-			model:  "deepseek-flash",
+			alias:  "deepseek-flash",
 			tokens: TokenCounts{Input: million, CacheRead: million},
 			want:   0.014,
 		},
 		{
 			name:   "wildcard cache and output",
-			model:  "doubao/doubao-seed-evolving-latest-version",
+			alias:  "doubao/doubao-seed-evolving-latest-version",
 			tokens: TokenCounts{Input: 2 * million, UncachedInput: million, CacheRead: million, Output: million},
 			want:   0.88 + 0.176 + 4.40,
 		},
 		{
-			name:   "unconfigured model is free",
-			model:  "mystery-1",
+			name:   "unconfigured alias is free",
+			alias:  "mystery-1",
 			tokens: TokenCounts{Input: million, UncachedInput: million},
 			want:   0,
 		},
@@ -108,9 +100,9 @@ func TestCostUSDRates(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := CostUSD(tc.model, tc.alias, tc.tokens)
+			got := CostUSD(tc.alias, tc.tokens)
 			if !almostEqual(got, tc.want) {
-				t.Fatalf("CostUSD(%q, %q) = %v, want %v", tc.model, tc.alias, got, tc.want)
+				t.Fatalf("CostUSD(%q) = %v, want %v", tc.alias, got, tc.want)
 			}
 		})
 	}
@@ -121,9 +113,25 @@ func TestPricingFirstMatchWins(t *testing.T) {
 		RateEntry{Model: "gpt-5*", Pricing: Pricing{Input: 1.00}},
 		RateEntry{Model: "gpt-5-mini", Pricing: Pricing{Input: 0.25}},
 	)
-	pricing, ok := LookupPricing("gpt-5-mini", "", 0)
+	pricing, ok := LookupPricing("gpt-5-mini", 0)
 	if !ok || !almostEqual(pricing.Input, 1.00) {
 		t.Fatalf("pricing = %+v ok=%v, want the first matching entry", pricing, ok)
+	}
+}
+
+func TestLookupPricingMatchesRawBeforeNormalizedAlias(t *testing.T) {
+	configureTestPricing(t,
+		RateEntry{Model: "gemini-4-argon", Pricing: Pricing{Input: 6.00}},
+		RateEntry{Model: "gemini-4-argon-high", Pricing: Pricing{Input: 9.00}},
+	)
+	pricing, ok := LookupPricing("gemini-4-argon-high", 0)
+	if !ok || !almostEqual(pricing.Input, 9.00) {
+		t.Fatalf("raw alias pricing = %+v ok=%v, want 9.00", pricing, ok)
+	}
+
+	pricing, ok = LookupPricing("gemini-4-argon-low", 0)
+	if !ok || !almostEqual(pricing.Input, 6.00) {
+		t.Fatalf("normalized alias pricing = %+v ok=%v, want 6.00", pricing, ok)
 	}
 }
 
@@ -133,6 +141,7 @@ func TestLookupPricingTiers(t *testing.T) {
 			Model:   "gemini-3.1-pro",
 			Pricing: Pricing{Input: 0.20, CacheRead: 0.02, Output: 1.20},
 			Tiers: []RateTier{
+				{MinInputTokens: 400_001, Pricing: Pricing{Input: 0.60, CacheRead: 0.06, Output: 2.40}},
 				{MinInputTokens: 200_001, Pricing: Pricing{Input: 0.40, CacheRead: 0.04, Output: 1.80}},
 			},
 		},
@@ -141,29 +150,31 @@ func TestLookupPricingTiers(t *testing.T) {
 	)
 	tests := []struct {
 		name        string
-		model       string
+		alias       string
 		inputTokens int64
 		wantInput   float64
 		wantRead    float64
 		wantOutput  float64
 	}{
-		{name: "tier at threshold", model: "gemini-3.1-pro", inputTokens: 200_000, wantInput: 0.20, wantRead: 0.02, wantOutput: 1.20},
-		{name: "tier above threshold", model: "gemini-3.1-pro", inputTokens: 200_001, wantInput: 0.40, wantRead: 0.04, wantOutput: 1.80},
-		{name: "flat rate", model: "claude-haiku-4-5", inputTokens: 100_000, wantInput: 0.10, wantRead: 0.01, wantOutput: 0.50},
-		{name: "dated flat rate", model: "claude-haiku-5-5-20260101", inputTokens: 250_000, wantInput: 0.10, wantRead: 0.01, wantOutput: 0.50},
-		{name: "unknown model", model: "claude-haiku-9", inputTokens: 1, wantInput: 0},
+		{name: "tier below threshold", alias: "gemini-3.1-pro", inputTokens: 200_000, wantInput: 0.20, wantRead: 0.02, wantOutput: 1.20},
+		{name: "tier exact threshold", alias: "gemini-3.1-pro", inputTokens: 200_001, wantInput: 0.40, wantRead: 0.04, wantOutput: 1.80},
+		{name: "tier above middle threshold", alias: "gemini-3.1-pro-high", inputTokens: 300_000, wantInput: 0.40, wantRead: 0.04, wantOutput: 1.80},
+		{name: "tier highest threshold", alias: "gemini-3.1-pro", inputTokens: 400_001, wantInput: 0.60, wantRead: 0.06, wantOutput: 2.40},
+		{name: "flat rate fallback", alias: "claude-haiku-4-5", inputTokens: 100_000, wantInput: 0.10, wantRead: 0.01, wantOutput: 0.50},
+		{name: "dated flat rate", alias: "claude-haiku-5-5-20260101", inputTokens: 250_000, wantInput: 0.10, wantRead: 0.01, wantOutput: 0.50},
+		{name: "unknown alias", alias: "claude-haiku-9", inputTokens: 1, wantInput: 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pricing, ok := LookupPricing(tc.model, "", tc.inputTokens)
+			pricing, ok := LookupPricing(tc.alias, tc.inputTokens)
 			if tc.wantInput == 0 {
 				if ok {
-					t.Fatalf("LookupPricing(%q) unexpectedly matched: %+v", tc.model, pricing)
+					t.Fatalf("LookupPricing(%q) unexpectedly matched: %+v", tc.alias, pricing)
 				}
 				return
 			}
 			if !ok {
-				t.Fatalf("LookupPricing(%q) did not match", tc.model)
+				t.Fatalf("LookupPricing(%q) did not match", tc.alias)
 			}
 			if !almostEqual(pricing.Input, tc.wantInput) || !almostEqual(pricing.CacheRead, tc.wantRead) || !almostEqual(pricing.Output, tc.wantOutput) {
 				t.Fatalf("pricing = %+v, want input=%v read=%v output=%v", pricing, tc.wantInput, tc.wantRead, tc.wantOutput)
@@ -174,14 +185,14 @@ func TestLookupPricingTiers(t *testing.T) {
 
 func TestPricingReloadReplacesTable(t *testing.T) {
 	configureTestPricing(t, RateEntry{Model: "reload-model", Pricing: Pricing{Input: 5}})
-	if _, ok := LookupPricing("reload-model", "", 0); !ok {
+	if _, ok := LookupPricing("reload-model", 0); !ok {
 		t.Fatal("configured model did not match")
 	}
 	ConfigurePricing(nil)
-	if _, ok := LookupPricing("reload-model", "", 0); ok {
+	if _, ok := LookupPricing("reload-model", 0); ok {
 		t.Fatal("cleared pricing table still matched")
 	}
-	if cost := CostUSD("reload-model", "", TokenCounts{UncachedInput: 1_000_000}); cost != 0 {
+	if cost := CostUSD("reload-model", TokenCounts{UncachedInput: 1_000_000}); cost != 0 {
 		t.Fatalf("cost after clearing prices = %v, want 0", cost)
 	}
 }
@@ -212,7 +223,7 @@ func TestTokenCountsNeverDoubleChargeCachedInput(t *testing.T) {
 	if counts.UncachedInput != 600_000 || counts.CacheRead != 400_000 || counts.Input != 1_000_000 {
 		t.Fatalf("token buckets = %+v, want uncached=600000 read=400000 input=1000000", counts)
 	}
-	cost := CostUSD("deepseek-flash", "", counts)
+	cost := CostUSD("deepseek-flash", counts)
 	want := 0.6*0.44 + 0.4*0.014
 	if !almostEqual(cost, want) {
 		t.Fatalf("cost = %v, want %v", cost, want)
@@ -234,22 +245,43 @@ func TestTokenCountsClaudeIndependentBuckets(t *testing.T) {
 	}
 }
 
-func TestCostUSDForRecord(t *testing.T) {
-	configureTestPricing(t, RateEntry{Model: "gemini-2.5-flash", Pricing: Pricing{Input: 0.03, CacheRead: 0.003, Output: 0.25}})
-	record := coreusage.Record{
-		Provider: "gemini",
-		Model:    "gemini-2.5-flash",
-		Detail: coreusage.Detail{
-			InputTokens:     1_000_000,
-			CachedTokens:    500_000,
-			CacheReadTokens: 500_000,
-			OutputTokens:    1_000_000,
-			TotalTokens:     2_000_000,
-		},
+func TestCostUSDForRecordUsesAliasOnly(t *testing.T) {
+	configureTestPricing(t,
+		RateEntry{Model: "gemini-4-argon", Pricing: Pricing{Input: 0.03, CacheRead: 0.003, Output: 0.25}},
+		RateEntry{Model: "upstream-only-model", Pricing: Pricing{Input: 9.99, Output: 9.99}},
+	)
+	detail := coreusage.Detail{
+		InputTokens:     1_000_000,
+		CachedTokens:    500_000,
+		CacheReadTokens: 500_000,
+		OutputTokens:    1_000_000,
+		TotalTokens:     2_000_000,
 	}
-	cost, counts := CostUSDForRecord(record)
-	want := 0.5*0.03 + 0.5*0.003 + 1.0*0.25
-	if !almostEqual(cost, want) {
-		t.Fatalf("cost = %v, want %v (counts=%+v)", cost, want, counts)
-	}
+
+	t.Run("matches normalized alias", func(t *testing.T) {
+		record := coreusage.Record{
+			Provider: "gemini",
+			Model:    "upstream-only-model",
+			Alias:    "gemini-4-argon-high",
+			Detail:   detail,
+		}
+		cost, counts := CostUSDForRecord(record)
+		want := 0.5*0.03 + 0.5*0.003 + 1.0*0.25
+		if !almostEqual(cost, want) {
+			t.Fatalf("cost = %v, want %v (counts=%+v)", cost, want, counts)
+		}
+	})
+
+	t.Run("ignores upstream model when alias does not match", func(t *testing.T) {
+		record := coreusage.Record{
+			Provider: "gemini",
+			Model:    "upstream-only-model",
+			Alias:    "client-unpriced-alias",
+			Detail:   detail,
+		}
+		cost, _ := CostUSDForRecord(record)
+		if cost != 0 {
+			t.Fatalf("cost = %v, want 0 when only upstream Model matches", cost)
+		}
+	})
 }

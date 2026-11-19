@@ -1040,7 +1040,7 @@ func TestV8UsagePostgresDSNMappingAndRoundTrip(t *testing.T) {
 }
 
 func TestV8ModelPricingMappingAndRoundTrip(t *testing.T) {
-	raw := "config-version: 8\nobservability:\n  usage:\n    model-pricing:\n      - model: Gemini-4-Hydrogen\n        input: 0.2\n        cache-read: 0.01\n        output: 1.0\n        tiers:\n          - min-input-tokens: 200001\n            input: 0.4\n"
+	raw := "config-version: 8\nobservability:\n  usage:\n    model-pricing:\n      - model: Gemini-4-Hydrogen\n        input: 0.2\n        cache-read: 0.01\n        cache-write: 0.25\n        output: 1.0\n        tiers:\n          - min-input-tokens: 200001\n            input: 0.4\n"
 	cfg, err := ParseConfigBytes([]byte(raw))
 	if err != nil {
 		t.Fatalf("parse v8 model pricing: %v", err)
@@ -1049,7 +1049,7 @@ func TestV8ModelPricingMappingAndRoundTrip(t *testing.T) {
 		t.Fatalf("ModelPricing = %+v", cfg.ModelPricing)
 	}
 	entry := cfg.ModelPricing[0]
-	if entry.Model != "gemini-4-hydrogen" || entry.Input != 0.2 || entry.CacheRead != 0.01 || entry.Output != 1.0 {
+	if entry.Model != "gemini-4-hydrogen" || entry.Input != 0.2 || entry.CacheRead != 0.01 || entry.CacheWrite != 0.25 || entry.Output != 1.0 {
 		t.Fatalf("normalized entry = %+v", entry)
 	}
 	if len(entry.Tiers) != 1 || entry.Tiers[0].MinInputTokens != 200001 || entry.Tiers[0].Input != 0.4 {
@@ -1079,16 +1079,17 @@ func TestV8ModelPricingMappingAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded.ModelPricing) != 1 || reloaded.ModelPricing[0].Model != "gemini-4-hydrogen" || reloaded.ModelPricing[0].Tiers[0].Input != 0.4 {
+	if len(reloaded.ModelPricing) != 1 || reloaded.ModelPricing[0].Model != "gemini-4-hydrogen" || reloaded.ModelPricing[0].CacheWrite != 0.25 || reloaded.ModelPricing[0].Tiers[0].Input != 0.4 {
 		t.Fatalf("model pricing round trip = %+v", reloaded.ModelPricing)
 	}
 }
 
 func TestModelPricingRejectsInvalidEntries(t *testing.T) {
 	for name, raw := range map[string]string{
-		"missing model":   "config-version: 8\nobservability:\n  usage:\n    model-pricing:\n      - input: 1\n",
-		"negative price":  "config-version: 8\nobservability:\n  usage:\n    model-pricing:\n      - model: m\n        input: -1\n",
-		"unordered tiers": "config-version: 8\nobservability:\n  usage:\n    model-pricing:\n      - model: m\n        tiers:\n          - min-input-tokens: 10\n          - min-input-tokens: 10\n",
+		"missing model":       "config-version: 8\nobservability:\n  usage:\n    model-pricing:\n      - input: 1\n",
+		"negative price":      "config-version: 8\nobservability:\n  usage:\n    model-pricing:\n      - model: m\n        input: -1\n",
+		"negative min-input":  "config-version: 8\nobservability:\n  usage:\n    model-pricing:\n      - model: m\n        tiers:\n          - min-input-tokens: -1\n            input: 2\n",
+		"negative tier price": "config-version: 8\nobservability:\n  usage:\n    model-pricing:\n      - model: m\n        tiers:\n          - min-input-tokens: 10\n            output: -1\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, errValidate := ParseConfigBytes([]byte(raw)); errValidate == nil {

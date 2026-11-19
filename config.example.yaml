@@ -1386,10 +1386,11 @@ observability:
     # USD-per-million-token rates used to bill client API key monthly quotas
     # (access.api-keys[*].quota). No prices are built in: a model without a
     # matching entry is billed at zero, so list every priced model explicitly.
-    # `model` accepts case-insensitive '*' wildcards and entries are matched in
+    # `model` matches the client-requested model name (before upstream alias
+    # mapping) using case-insensitive '*' wildcards, and entries are matched in
     # order (first match wins), so place specific entries before broad patterns.
-    # Optional `tiers` replace the entry rates once a request's input token
-    # count reaches `min-input-tokens`.
+    # Optional `tiers` replace the entry rates once a request's total input
+    # token count reaches `min-input-tokens`.
     # model-pricing:
     #   - model: "gemini-4-hydrogen"
     #     input: 0.20

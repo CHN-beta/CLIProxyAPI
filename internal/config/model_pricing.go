@@ -7,7 +7,7 @@ import (
 )
 
 // ModelPricingEntry is a USD-per-million-token rate card for client API key
-// billing. Model is matched against client-visible model names using
+// billing. Model is matched against the client-requested model alias using
 // case-insensitive '*' wildcards; the first matching entry wins. A model with
 // no matching entry is billed at zero, so operators must list every priced
 // model explicitly.
@@ -43,13 +43,11 @@ func (e ModelPricingEntry) Validate() error {
 	if errValidate := validatePricingRates(e.Input, e.CacheRead, e.CacheWrite, e.Output); errValidate != nil {
 		return fmt.Errorf("model-pricing %s: %w", e.Model, errValidate)
 	}
-	previous := int64(-1)
 	for i := range e.Tiers {
 		tier := e.Tiers[i]
-		if tier.MinInputTokens <= previous {
-			return fmt.Errorf("model-pricing %s: tiers must use strictly ascending min-input-tokens", e.Model)
+		if tier.MinInputTokens < 0 {
+			return fmt.Errorf("model-pricing %s: tier min-input-tokens must not be negative", e.Model)
 		}
-		previous = tier.MinInputTokens
 		if errValidate := validatePricingRates(tier.Input, tier.CacheRead, tier.CacheWrite, tier.Output); errValidate != nil {
 			return fmt.Errorf("model-pricing %s tier %d: %w", e.Model, tier.MinInputTokens, errValidate)
 		}

@@ -8,11 +8,12 @@ import (
 	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 )
 
-func usageRecord(key, model string, at time.Time) coreusage.Record {
+func usageRecord(key, alias string, at time.Time) coreusage.Record {
 	return coreusage.Record{
 		APIKey:      key,
 		Provider:    "deepseek",
-		Model:       model,
+		Model:       "upstream-mapped-model",
+		Alias:       alias,
 		RequestedAt: at,
 		Detail: coreusage.Detail{
 			InputTokens:  1_000_000,

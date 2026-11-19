@@ -32,13 +32,13 @@ type Pricing struct {
 }
 
 // RateTier overrides an entry's rates once a request reaches MinInputTokens
-// input tokens.
+// total input tokens.
 type RateTier struct {
 	MinInputTokens int64
 	Pricing        Pricing
 }
 
-// RateEntry prices one model pattern. Model uses case-insensitive '*'
+// RateEntry prices one requested model pattern. Model uses case-insensitive '*'
 // wildcards; entries are tried in order and the first match wins.
 type RateEntry struct {
 	Model   string
@@ -52,7 +52,7 @@ type rateEntry struct {
 	tiers   []RateTier
 }
 
-// rate resolves the applicable rate card for an input token count.
+// rate resolves the applicable rate card for a total input token count.
 func (e rateEntry) rate(inputTokens int64) Pricing {
 	pricing := e.base
 	for _, tier := range e.tiers {
@@ -114,15 +114,18 @@ func NormalizeModelName(raw string) string {
 	return name
 }
 
-// LookupPricing resolves the configured rate card for a model. Record.Model is
-// tried first, then Record.Alias; both the raw and the normalized model names
-// are matched. Models without a configured entry report false (zero cost).
-func LookupPricing(model, alias string, inputTokens int64) (Pricing, bool) {
+// LookupPricing resolves the configured rate card for a client-requested model
+// alias and total input token count. Both the trimmed lowercase raw alias and
+// its NormalizeModelName form are tried in order (deduplicated), with
+// first-match-wins across configured entries. When an entry defines tiers, the
+// highest tier with MinInputTokens <= inputTokens overrides the base rates.
+// Models without a configured entry report false (zero cost).
+func LookupPricing(alias string, inputTokens int64) (Pricing, bool) {
 	table := activeRateTable.Load()
 	if table == nil || len(table.entries) == 0 {
 		return Pricing{}, false
 	}
-	for _, candidate := range pricingCandidates(model, alias) {
+	for _, candidate := range pricingCandidates(alias) {
 		for _, entry := range table.entries {
 			if modelPatternMatches(entry.pattern, candidate) {
 				return entry.rate(inputTokens), true
@@ -132,28 +135,18 @@ func LookupPricing(model, alias string, inputTokens int64) (Pricing, bool) {
 	return Pricing{}, false
 }
 
-// pricingCandidates lists the names a configured pattern may target: the raw
-// model and alias as reported by the provider, and their normalized forms.
-func pricingCandidates(model, alias string) []string {
-	out := make([]string, 0, 4)
-	seen := make(map[string]struct{}, 4)
-	for _, raw := range []string{model, alias} {
-		raw = strings.ToLower(strings.TrimSpace(raw))
-		if raw == "" {
-			continue
-		}
-		for _, candidate := range []string{raw, NormalizeModelName(raw)} {
-			if candidate == "" {
-				continue
-			}
-			if _, exists := seen[candidate]; exists {
-				continue
-			}
-			seen[candidate] = struct{}{}
-			out = append(out, candidate)
-		}
+// pricingCandidates lists the names a configured pattern may target from the
+// client-requested model alias: the raw value and its normalized form.
+func pricingCandidates(alias string) []string {
+	raw := strings.ToLower(strings.TrimSpace(alias))
+	if raw == "" {
+		return nil
 	}
-	return out
+	normalized := NormalizeModelName(raw)
+	if normalized == "" || normalized == raw {
+		return []string{raw}
+	}
+	return []string{raw, normalized}
 }
 
 // modelPatternMatches performs case-insensitive wildcard matching where '*'
@@ -254,10 +247,10 @@ func nonNegative(value int64) int64 {
 	return value
 }
 
-// CostUSD prices token counts with the resolved rate card. Models without a
-// configured rate cost nothing.
-func CostUSD(model, alias string, tokens TokenCounts) float64 {
-	pricing, ok := LookupPricing(model, alias, nonNegative(tokens.Input))
+// CostUSD prices token counts using the client-requested model alias and total
+// input tokens (tokens.Input). Models without a configured rate cost nothing.
+func CostUSD(alias string, tokens TokenCounts) float64 {
+	pricing, ok := LookupPricing(alias, nonNegative(tokens.Input))
 	if !ok {
 		return 0
 	}
@@ -268,8 +261,9 @@ func CostUSD(model, alias string, tokens TokenCounts) float64 {
 		float64(outputTokens)*pricing.Output) / tokensPerMillion
 }
 
-// CostUSDForRecord resolves token buckets and prices a usage record.
+// CostUSDForRecord resolves token buckets and prices a usage record by its
+// client-requested model alias (record.Alias).
 func CostUSDForRecord(record coreusage.Record) (float64, TokenCounts) {
 	tokens := TokenCountsFromDetail(record.Detail, record.Provider, record.ExecutorType)
-	return CostUSD(record.Model, record.Alias, tokens), tokens
+	return CostUSD(record.Alias, tokens), tokens
 }
